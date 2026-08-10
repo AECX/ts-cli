@@ -1,0 +1,74 @@
+BasedOnStyle: LLVM
+
+Language: Cpp
+
+ColumnLimit: '128'
+IndentWidth: '4'
+TabWidth: '4'
+UseTab: Never
+
+# Braces
+BreakBeforeBraces: Custom
+BraceWrapping:
+    AfterFunction: false
+    AfterEnum: false
+    AfterStruct: false
+    SplitEmptyFunction: true
+
+# Functions
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortLambdasOnASingleLine: None
+
+IndentWrappedFunctionNames: true
+IndentCaseLabels: true
+
+# Arguments / parameters
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackParameters: false
+
+# Templates
+AlwaysBreakTemplateDeclarations: Yes
+SpaceAfterTemplateKeyword: false
+SpacesInAngles: Never
+
+# Operators / expressions
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: AfterColon
+BreakInheritanceList: AfterColon
+PointerAlignment: Left
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: false
+SpaceBeforeInheritanceColon: false
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: true
+SpaceInEmptyParentheses: false
+
+# Alignment
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# Includes / namespaces
+IncludeBlocks: Regroup
+SortIncludes: true
+SortUsingDeclarations: true
+CompactNamespaces: false
+NamespaceIndentation: All
+FixNamespaceComments: true
+
+# Comments / whitespace
+SpacesBeforeTrailingComments: 1
+MaxEmptyLinesToKeep: 1
+Cpp11BracedListStyle: true
