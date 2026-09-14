@@ -35,10 +35,8 @@ namespace ts::client {
 
     void ActionProcessor::Process( protocol::Connection& connection, const ClientAction& action ) {
         std::visit(
-            [this, &connection]( const auto& value ) {
-                using ActionType = std::decay_t<decltype( value )>;
-
-                if constexpr ( std::is_same_v<ActionType, SendCurrentChannelMessageAction> ) {
+            protocol::EventVisitor {
+                [&]( const SendCurrentChannelMessageAction& value ) {
                     const std::uint64_t channelId = connection.CurrentChannelId();
 
                     if ( channelId == 0 || connection.Channels().Find( channelId ) == nullptr ) {
@@ -49,7 +47,8 @@ namespace ts::client {
                     connection.SendTextMessage(
                         protocol::TextMessageTarget { .mode = protocol::TextMessageTargetMode::Channel, .id = channelId },
                         value.text );
-                } else if constexpr ( std::is_same_v<ActionType, SendPrivateMessageAction> ) {
+                },
+                [&]( const SendPrivateMessageAction& value ) {
                     const auto candidates = ClientCandidates( connection );
                     const auto target = cli::TargetResolver::ResolvePrivate( candidates, value.target );
 
@@ -61,9 +60,11 @@ namespace ts::client {
                     connection.SendTextMessage(
                         protocol::TextMessageTarget { .mode = protocol::TextMessageTargetMode::Private, .id = target->id },
                         value.text );
-                } else if constexpr ( std::is_same_v<ActionType, SendReplyMessageAction> ) {
+                },
+                [&]( const SendReplyMessageAction& value ) {
                     connection.SendTextMessage( value.target, value.text );
-                } else if constexpr ( std::is_same_v<ActionType, JoinChannelAction> ) {
+                },
+                [&]( const JoinChannelAction& value ) {
                     const auto candidates = ChannelCandidates( connection );
                     const auto target = cli::TargetResolver::ResolveChannel( candidates, value.channel );
 
@@ -73,14 +74,16 @@ namespace ts::client {
                     }
 
                     connection.MoveToChannel( target->id );
-                } else if constexpr ( std::is_same_v<ActionType, ChangeNicknameAction> ) {
+                },
+                [&]( const ChangeNicknameAction& value ) {
                     connection.ChangeNickname( value.nickname );
-                } else if constexpr ( std::is_same_v<ActionType, ListTreeAction> ) {
+                },
+                [&]( const ListTreeAction& value ) {
                     ProcessListTree( connection, value );
-                } else if constexpr ( std::is_same_v<ActionType, UserSettingsAction> ) {
+                },
+                [&]( const UserSettingsAction& value ) {
                     ProcessUserSettings( connection, value );
-                }
-            },
+                } },
             action );
     }
 

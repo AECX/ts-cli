@@ -64,6 +64,26 @@ namespace ts::protocol {
         [[nodiscard]] std::uint16_t ClientId() const;
         [[nodiscard]] ConnectionStatistics::Snapshot Statistics() const;
 
+        /*
+         * True once nothing at all has been received for ReceiveTimeout.
+         *
+         * The server is pinged every second and answers every ping, so silence
+         * this long means the connection is gone rather than merely idle. Only
+         * meaningful after SetConnected -- during the handshake the caller is
+         * driving its own blocking exchanges.
+         *
+         * now is explicit so the boundary can be tested without waiting.
+         */
+        [[nodiscard]] bool TimedOut( TimePoint now ) const;
+
+        /*
+         * The timeout policy itself, separated from the live transport so it
+         * can be tested without a socket.
+         */
+        [[nodiscard]] static bool IsTimedOut( TimePoint lastReceiveAt, TimePoint now );
+
+        static constexpr std::chrono::seconds ReceiveTimeout { 30 };
+
       private:
         struct PendingPing {
             std::uint16_t packetId = 0;

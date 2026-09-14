@@ -62,6 +62,15 @@ release-precheck:
 		echo "error: working tree is not clean; commit or stash changes before releasing" >&2; \
 		exit 1; \
 	fi
+	@branch="$$(git branch --show-current)"; \
+	git fetch origin "$$branch" >/dev/null 2>&1 || { \
+		echo "error: 'git fetch origin $$branch' failed -- check your network/remote before releasing" >&2; \
+		exit 1; \
+	}; \
+	if [ -n "$$(git log --oneline "$$branch"..origin/"$$branch" 2>/dev/null)" ]; then \
+		echo "error: local $$branch is behind origin/$$branch -- pull/rebase first, then retry" >&2; \
+		exit 1; \
+	fi
 
 # Builds linux + windows-cross release binaries, then interactively prompts
 # for the new version (never bumps automatically), tags, and pushes the
@@ -69,8 +78,15 @@ release-precheck:
 # involved. The packaged binaries are left in build/release/ for a
 # maintainer to attach when creating the release on GitHub (or anywhere
 # else) by hand.
+#
+# set -e plus the trap below mean any failure after the confirmation prompt
+# rolls back whatever this run did that never made it to origin (an
+# unpushed local commit and/or tag). Once the branch push itself succeeds,
+# that commit is shared history -- the trap will not touch it, only clean
+# up a since-orphaned local tag, and tells you exactly what's left to do.
 release: release-precheck linux windows-cross
-	@current_version="$$(cat $(VERSION_FILE) 2>/dev/null || echo 0.0.0)"; \
+	@set -e; \
+	current_version="$$(cat $(VERSION_FILE) 2>/dev/null || echo 0.0.0)"; \
 	echo "Current version: $$current_version"; \
 	printf "New version (semantic, e.g. 0.2.0 or 0.2.0-beta): "; \
 	read -r new_version; \
@@ -104,12 +120,33 @@ release: release-precheck linux windows-cross
 		y|Y) ;; \
 		*) echo "Aborted -- nothing was committed, tagged, or pushed."; exit 1 ;; \
 	esac; \
+	start_commit="$$(git rev-parse HEAD)"; \
+	committed=0; tagged_local=0; pushed_commit=0; \
+	rollback() { \
+		status=$$?; \
+		[ "$$status" = "0" ] && return; \
+		if [ "$$tagged_local" = "1" ]; then \
+			git tag -d "v$$new_version" >/dev/null 2>&1 || true; \
+		fi; \
+		if [ "$$pushed_commit" = "1" ]; then \
+			echo "warning: the version-bump commit was already pushed to origin/$$branch and was NOT rolled back (that is shared history now)." >&2; \
+			echo "         Only the local tag (if any) was cleaned up. Fix forward: re-run 'make release', or tag/push manually." >&2; \
+		elif [ "$$committed" = "1" ]; then \
+			git reset --hard "$$start_commit" >/dev/null 2>&1 || true; \
+			echo "Rolled back the local commit -- nothing was pushed. Working tree is back to $$start_commit." >&2; \
+		fi; \
+	}; \
+	trap rollback EXIT; \
 	echo "$$new_version" > $(VERSION_FILE); \
 	git add $(VERSION_FILE); \
 	git commit -m "Release v$$new_version"; \
+	committed=1; \
 	git tag -a "v$$new_version" -m "Release v$$new_version"; \
+	tagged_local=1; \
 	git push origin "$$branch"; \
+	pushed_commit=1; \
 	git push origin "v$$new_version"; \
+	trap - EXIT; \
 	echo; \
 	echo "Tag v$$new_version pushed to origin. Create the release on GitHub from that tag and attach:"; \
 	echo "  $(RELEASE_DIR)/ts-cli-v$$new_version-linux-x86_64"; \

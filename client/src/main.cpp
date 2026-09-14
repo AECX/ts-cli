@@ -21,8 +21,7 @@
 #include <iostream>
 #include <log/logger.hpp>
 #include <log/ostream_sink.hpp>
-#include <protocol/connection.hpp>
-#include <protocol/state/channel_store.hpp>
+#include <protocol/protocol.hpp>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -108,7 +107,10 @@ int main( int argc, char* argv[] ) {
 
         logger.Info( "connection", "connecting" );
 
-        ts::protocol::Connection connection( argv[1], std::move( profile ), std::move( identity ), localIdentity.keyOffset );
+        ts::protocol::Connection connection( ts::protocol::ConnectionOptions { .endpoint = argv[1],
+                                                                               .profile = std::move( profile ),
+                                                                               .identity = std::move( identity ),
+                                                                               .identityKeyOffset = localIdentity.keyOffset } );
 
         connection.Connect();
 

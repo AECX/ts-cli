@@ -27,6 +27,26 @@ namespace ts::protocol {
         Subchannels = 6
     };
 
+    /*
+     * Explicit whisper recipients: every client in any of channelIds, plus
+     * every client in clientIds. At least one of the two must be non-empty.
+     */
+    struct WhisperTarget {
+        std::vector<std::uint64_t> channelIds;
+        std::vector<std::uint16_t> clientIds;
+    };
+
+    /*
+     * Whisper addressed by group rather than by explicit recipient, for
+     * example "every channel commander in the channel family".
+     */
+    struct GroupWhisper {
+        GroupWhisperType type = GroupWhisperType::ServerGroup;
+        GroupWhisperTarget target = GroupWhisperTarget::CurrentChannel;
+
+        std::uint64_t targetId = 0;
+    };
+
     struct VoiceFrame {
         std::uint16_t voiceId = 0;
         std::uint16_t clientId = 0;

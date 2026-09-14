@@ -1,6 +1,6 @@
 # ts-cli documentation
 
-This directory contains user-, runtime- and protocol-facing documentation for `ts-cli`. It focuses on behavior and architecture rather than documenting individual C++ classes or functions.
+This directory contains user-, runtime- and protocol-facing documentation for `ts-cli`. It focuses on behavior and architecture rather than documenting individual C++ classes or functions — with one exception, [Using the protocol library](protocol/api.md), which documents the `ts-protocol` public API for callers writing code against it.
 
 ## Client
 
@@ -11,6 +11,7 @@ This directory contains user-, runtime- and protocol-facing documentation for `t
 
 ## Protocol
 
+- [Using the protocol library](protocol/api.md) — the public C++ API: connecting, driving a session, events, state, sending, statistics and errors
 - [Handshake and session bootstrap](protocol/handshake.md) — connection bootstrap from Init1 through `initserver`
 - [Connection lifecycle](protocol/connection_lifecycle.md) — lifecycle, keepalive and disconnect behavior
 - [Packet format](protocol/packet_format.md) — low-level packet headers, types and flags
@@ -28,6 +29,8 @@ Some older protocol chapters are still outlines. Status notes at the top of thos
 Development conventions live in the repository-level [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggested reading order
+
+To write code against the protocol library, read [Using the protocol library](protocol/api.md) — it is self-contained and assumes no wire-format knowledge.
 
 For protocol work, start with:
 
