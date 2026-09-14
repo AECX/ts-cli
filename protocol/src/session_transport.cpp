@@ -618,6 +618,26 @@ namespace ts::protocol {
         return m_Statistics.GetSnapshot();
     }
 
+    bool SessionTransport::TimedOut( TimePoint now ) const {
+        if ( !m_Connected ) {
+            return false;
+        }
+
+        return IsTimedOut( m_LastReceiveAt, now );
+    }
+
+    bool SessionTransport::IsTimedOut( TimePoint lastReceiveAt, TimePoint now ) {
+        /*
+         * A clock that appears to run backwards (a receive timestamp in the
+         * future) must not be read as an enormous silence.
+         */
+        if ( now <= lastReceiveAt ) {
+            return false;
+        }
+
+        return now - lastReceiveAt >= ReceiveTimeout;
+    }
+
     std::chrono::milliseconds SessionTransport::WaitTimeout( std::chrono::milliseconds maximum ) const {
         const auto deadline = NextDeadline();
 

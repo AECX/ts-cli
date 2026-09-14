@@ -12,6 +12,8 @@ add_executable(ts-protocol-tests
     packet_sequence_test.cpp
     quick_lz_test.cpp
     session_crypto_test.cpp
+    session_event_test.cpp
+    session_timeout_test.cpp
     channel_state_test.cpp
     client_state_test.cpp
     identity_test.cpp
@@ -21,6 +23,7 @@ add_executable(ts-protocol-tests
     client_command_test.cpp
     client_poke_test.cpp
     voice_codec_test.cpp
+    whisper_target_test.cpp
 
 )
 

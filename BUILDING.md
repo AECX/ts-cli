@@ -15,7 +15,7 @@ For usage, commands, and configuration, see [README.md](README.md). For code sty
 | Target | Method | Status |
 | --- | --- | --- |
 | **Linux** (native) | direct build via CMake | Fully supported — networking, protocol, CLI, and PipeWire/Opus voice |
-| **Windows** (x86_64) | cross-compiled from Linux via MinGW-w64, tested under Wine | Experimental — networking, protocol, CLI, and WASAPI/Opus voice are all ported; requires the `mingw-w64-opus` AUR package to build with voice enabled (see [Current limitations](#current-limitations)) |
+| **Windows** (x86_64) | cross-compiled from Linux via MinGW-w64, tested under Wine | Supported — networking, protocol, CLI, and WASAPI/Opus voice are all ported and verified on real Windows hardware; requires the `mingw-w64-opus` AUR package to build with voice enabled (see [Current limitations](#current-limitations)) |
 | **Windows** (x86_64) | built natively on Windows via [MSYS2](https://www.msys2.org/)'s UCRT64 environment | Same code, same status as the row above — see [Windows (native, via MSYS2)](#windows-native-via-msys2) |
 
 Both targets share the same source tree. `net`, `log`, `audio`, and `client/platform` each expose a platform-agnostic public interface with a POSIX and a Win32 backend selected in `CMakeLists.txt` — see [Platform backends](CONTRIBUTING.md#platform-backends) in `CONTRIBUTING.md` if you're implementing or extending one.
@@ -140,7 +140,7 @@ Audio on Windows uses a real WASAPI backend (shared-mode, event-driven capture a
 
 * it requires `mingw-w64-opus` to build at all (see [Requirements](#requirements-1) above); without it, build with `-DTS_AUDIO_STUB_DEPS=ON` to get everything except voice;
 * exclusive mode and live device hot-plug notifications aren't implemented — device changes while the client is running need `/audio input`/`/audio output` to pick up the new device, rather than switching automatically;
-* this backend hasn't been exercised on real Windows hardware by the person who wrote it — it's been validated under Wine (device enumeration, capture/render start/stop, device switching, and error rejection for an invalid device all work there against Wine's own audio backend), but Wine's audio path isn't a substitute for a real WASAPI driver stack. If you hit a glitch or a device that won't enumerate correctly on real hardware, `audio/src/win32/wasapi_backend.cpp` is the place to look, and `audio/include/audio/audio_backend.hpp` is the interface it implements.
+* this backend has been exercised on real Windows hardware — capture and playback behave as they do on PipeWire — as well as under Wine (device enumeration, capture/render start/stop, device switching, and error rejection for an invalid device). If you do hit a glitch or a device that won't enumerate correctly, `audio/src/win32/wasapi_backend.cpp` is the place to look, and `audio/include/audio/audio_backend.hpp` is the interface it implements.
 
 ### Toolchain internals
 
