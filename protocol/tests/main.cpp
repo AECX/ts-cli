@@ -23,9 +23,12 @@ namespace ts::test {
     void RunQuickLzTests();
     void RunReliableCommandQueueTests();
     void RunSessionCryptoTests();
+    void RunSessionEventTests();
+    void RunSessionTimeoutTests();
     void RunSetConnectionInfoTests();
     void RunTextMessageTests();
     void RunVoiceCodecTests();
+    void RunWhisperTargetTests();
 
     struct TestGroup {
         std::string_view name;
@@ -35,7 +38,7 @@ namespace ts::test {
 } // namespace ts::test
 
 int main() {
-    constexpr std::array<ts::test::TestGroup, 20> TestGroups = {
+    constexpr std::array<ts::test::TestGroup, 23> TestGroups = {
         ts::test::TestGroup { .name = "BinaryReader", .run = ts::test::RunBinaryReaderTests },
         ts::test::TestGroup { .name = "BootstrapCrypto", .run = ts::test::RunBootstrapCryptoTests },
         ts::test::TestGroup { .name = "ChannelState", .run = ts::test::RunChannelStateTests },
@@ -53,9 +56,12 @@ int main() {
         ts::test::TestGroup { .name = "QuickLz", .run = ts::test::RunQuickLzTests },
         ts::test::TestGroup { .name = "ReliableCommandQueue", .run = ts::test::RunReliableCommandQueueTests },
         ts::test::TestGroup { .name = "SessionCrypto", .run = ts::test::RunSessionCryptoTests },
+        ts::test::TestGroup { .name = "SessionEvent", .run = ts::test::RunSessionEventTests },
+        ts::test::TestGroup { .name = "SessionTimeout", .run = ts::test::RunSessionTimeoutTests },
         ts::test::TestGroup { .name = "SetConnectionInfo", .run = ts::test::RunSetConnectionInfoTests },
         ts::test::TestGroup { .name = "TextMessage", .run = ts::test::RunTextMessageTests },
-        ts::test::TestGroup { .name = "VoiceCodec", .run = ts::test::RunVoiceCodecTests } };
+        ts::test::TestGroup { .name = "VoiceCodec", .run = ts::test::RunVoiceCodecTests },
+        ts::test::TestGroup { .name = "WhisperTarget", .run = ts::test::RunWhisperTargetTests } };
 
     std::size_t failed = 0;
 

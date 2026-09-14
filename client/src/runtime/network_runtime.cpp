@@ -78,9 +78,13 @@ namespace ts::client {
         }
     }
 
+    const protocol::DisconnectInfo& NetworkRuntime::Disconnect() const {
+        return m_Disconnect;
+    }
+
     void NetworkRuntime::Run( std::stop_token stopToken ) {
         try {
-            m_Connection.Run(
+            m_Disconnect = m_Connection.Run(
                 stopToken,
                 [this]( protocol::SessionEvent event ) {
                     PublishCurrentChannelIfChanged( m_Connection );
@@ -91,13 +95,22 @@ namespace ts::client {
                         m_EventQueue.Push( std::move( event ) );
                     }
                 },
-                [this]( protocol::Connection& connection ) {
-                    PublishCurrentChannelIfChanged( connection );
-                    PublishCurrentNicknameIfChanged( connection );
-                    SyncTalkerSettings( connection );
-                    ProcessActions( connection );
-                    ProcessAudio( connection );
+                [this] {
+                    PublishCurrentChannelIfChanged( m_Connection );
+                    PublishCurrentNicknameIfChanged( m_Connection );
+                    SyncTalkerSettings( m_Connection );
+                    ProcessActions( m_Connection );
+                    ProcessAudio( m_Connection );
                 } );
+
+            /*
+             * A local stop is what the user asked for and needs no
+             * announcement; anything else ended the session against their
+             * wishes, so say so before the queues close.
+             */
+            if ( m_Disconnect.reason != protocol::DisconnectReason::LocalRequest ) {
+                m_EventQueue.Push( DisconnectedEvent { .info = m_Disconnect } );
+            }
         } catch ( ... ) {
             m_Exception = std::current_exception();
         }
@@ -125,7 +138,9 @@ namespace ts::client {
             }
 
             if ( !m_AudioStatePublished || status.available != m_AudioAvailable || transmitChange ) {
-                connection.SetAudioState( status.available, status.available, !m_AudioTransmitEnabled );
+                connection.SetAudioState( protocol::AudioState { .inputHardware = status.available,
+                                                                 .outputHardware = status.available,
+                                                                 .inputMuted = !m_AudioTransmitEnabled } );
                 m_AudioStatePublished = true;
                 m_AudioAvailable = status.available;
             }

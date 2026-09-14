@@ -35,6 +35,8 @@ namespace ts::client::cli {
                 } else if constexpr ( std::is_same_v<EventType, CurrentNicknameChangedEvent> ) {
                     SetCurrentNickname( value.nickname );
                     PrintInfo( "nickname is now " + value.nickname );
+                } else if constexpr ( std::is_same_v<EventType, DisconnectedEvent> ) {
+                    PrintDisconnect( value.info );
                 }
             },
             event );
@@ -282,6 +284,36 @@ namespace ts::client::cli {
         message += event.message;
 
         PrintError( message );
+    }
+
+    void Presentation::PrintDisconnect( const protocol::DisconnectInfo& info ) {
+        std::string message;
+
+        switch ( info.reason ) {
+            case protocol::DisconnectReason::ServerClosed:
+                message = "disconnected by the server";
+                break;
+
+            case protocol::DisconnectReason::Timeout:
+                message = "connection timed out";
+                break;
+
+            case protocol::DisconnectReason::TransportError:
+                message = "connection failed";
+                break;
+
+            case protocol::DisconnectReason::LocalRequest:
+                message = "disconnected";
+                break;
+        }
+
+        if ( !info.message.empty() ) {
+            message += ": ";
+            message += info.message;
+        }
+
+        PrintError( message );
+        m_Notify( ts::audio::NotificationType::Failure );
     }
 
     void Presentation::WriteSafe( std::string_view value ) {

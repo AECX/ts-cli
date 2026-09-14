@@ -4,6 +4,7 @@
 #include <optional>
 #include <protocol/command/parser.hpp>
 #include <protocol/command/writer.hpp>
+#include <protocol/error.hpp>
 #include <protocol/handshake/client_init.hpp>
 #include <protocol/handshake/init_server.hpp>
 #include <protocol/message/channel_created.hpp>
@@ -52,6 +53,7 @@ namespace ts::protocol {
         m_ConnectionInfoRequested = false;
         m_LastConnectionInfoSentAt.reset();
         m_DisconnectPacketId.reset();
+        m_ServerRemoval.reset();
 
         const ClientInit clientInit( profile, keyOffset );
 
@@ -74,7 +76,7 @@ namespace ts::protocol {
 
                 for ( const CommandResultEntry& entry : result.Entries() ) {
                     if ( entry.id != 0 ) {
-                        throw std::runtime_error( "Login rejected (" + std::to_string( entry.id ) + "): " + entry.message );
+                        throw LoginRejectedError( entry.id, entry.message );
                     }
                 }
 
@@ -109,7 +111,7 @@ namespace ts::protocol {
 
     void Session::Disconnect( std::string_view reason ) {
         if ( m_ClientId == 0 ) {
-            throw std::runtime_error( "Session is not logged in" );
+            throw NotConnectedError( "Session is not logged in" );
         }
 
         if ( m_DisconnectPacketId ) {
@@ -123,7 +125,7 @@ namespace ts::protocol {
 
     void Session::SendTextMessage( TextMessageTarget target, std::string_view text ) {
         if ( m_ClientId == 0 ) {
-            throw std::runtime_error( "Session is not logged in" );
+            throw NotConnectedError( "Session is not logged in" );
         }
 
         const ::ts::protocol::SendTextMessage message { target, std::string( text ) };
@@ -132,7 +134,7 @@ namespace ts::protocol {
 
     void Session::MoveToChannel( std::uint64_t channelId ) {
         if ( m_ClientId == 0 ) {
-            throw std::runtime_error( "Session is not logged in" );
+            throw NotConnectedError( "Session is not logged in" );
         }
 
         const ClientMove move( m_ClientId, channelId );
@@ -141,31 +143,58 @@ namespace ts::protocol {
 
     void Session::ChangeNickname( std::string_view nickname ) {
         if ( m_ClientId == 0 ) {
-            throw std::runtime_error( "Session is not logged in" );
+            throw NotConnectedError( "Session is not logged in" );
         }
 
         const ClientUpdate update { std::string( nickname ) };
         m_SessionTransport.SendCommand( update.Serialize() );
     }
 
-    void Session::SetAudioState( bool inputHardware, bool outputHardware, bool inputMuted ) {
+    void Session::SetAudioState( AudioState state ) {
         if ( m_ClientId == 0 ) {
-            throw std::runtime_error( "Session is not logged in" );
+            throw NotConnectedError( "Session is not logged in" );
         }
 
         CommandWriter writer( "clientupdate" );
-        writer.Write( "client_input_hardware", inputHardware );
-        writer.Write( "client_output_hardware", outputHardware );
-        writer.Write( "client_input_muted", inputMuted );
+        writer.Write( "client_input_hardware", state.inputHardware );
+        writer.Write( "client_output_hardware", state.outputHardware );
+        writer.Write( "client_input_muted", state.inputMuted );
         m_SessionTransport.SendCommand( writer.Take() );
     }
 
     void Session::SendVoice( std::span<const std::byte> data, bool talkStart ) {
         if ( m_ClientId == 0 ) {
-            throw std::runtime_error( "Session is not logged in" );
+            throw NotConnectedError( "Session is not logged in" );
         }
 
         m_SessionTransport.SendVoice( CurrentVoiceCodec(), data, VoiceEncrypted(), talkStart );
+    }
+
+    void Session::SendWhisper( const WhisperTarget& target, std::span<const std::byte> data, bool talkStart ) {
+        if ( m_ClientId == 0 ) {
+            throw NotConnectedError( "Session is not logged in" );
+        }
+
+        if ( target.channelIds.empty() && target.clientIds.empty() ) {
+            throw ProtocolError( "Whisper target has neither channels nor clients" );
+        }
+
+        m_SessionTransport
+            .SendVoiceWhisper( CurrentVoiceCodec(), target.channelIds, target.clientIds, data, VoiceEncrypted(), talkStart );
+    }
+
+    void Session::SendGroupWhisper( const GroupWhisper& target, std::span<const std::byte> data, bool talkStart ) {
+        if ( m_ClientId == 0 ) {
+            throw NotConnectedError( "Session is not logged in" );
+        }
+
+        m_SessionTransport.SendGroupWhisper( CurrentVoiceCodec(),
+                                             target.type,
+                                             target.target,
+                                             target.targetId,
+                                             data,
+                                             VoiceEncrypted(),
+                                             talkStart );
     }
 
     void Session::ReceiveInitialState() {
@@ -271,6 +300,14 @@ namespace ts::protocol {
         }
 
         return m_SessionTransport.IsCommandPending( *m_DisconnectPacketId );
+    }
+
+    bool Session::TimedOut() const {
+        return m_SessionTransport.TimedOut( ReliableCommandQueue::Clock::now() );
+    }
+
+    const std::optional<ServerDisconnect>& Session::ServerRemoval() const {
+        return m_ServerRemoval;
     }
 
     bool Session::HasEvent() const {
@@ -418,9 +455,19 @@ namespace ts::protocol {
             for ( const ClientLeftViewEntry& entry : left.Entries() ) {
                 if ( entry.id == m_ClientId ) {
                     m_CurrentChannelId = entry.toChannelId;
+
                     if ( entry.toChannelId != 0 ) {
                         m_Channels.SetSubscribed( entry.toChannelId, true );
+                    } else if ( !m_ServerRemoval ) {
+                        /*
+                         * No destination channel means the server dropped us
+                         * rather than moving us: a kick, a ban, or a shutdown.
+                         * Record it so the owner loop can report why the
+                         * session ended instead of going quiet.
+                         */
+                        m_ServerRemoval = ServerDisconnect { .reasonId = entry.reasonId, .message = entry.reasonMessage };
                     }
+
                     continue;
                 }
 
@@ -686,6 +733,10 @@ namespace ts::protocol {
 
     const ClientStore& Session::Clients() const {
         return m_Clients;
+    }
+
+    ConnectionStatistics::Snapshot Session::Statistics() const {
+        return m_SessionTransport.Statistics();
     }
 
 } // namespace ts::protocol

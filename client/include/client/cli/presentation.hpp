@@ -8,6 +8,7 @@
 #include <iosfwd>
 #include <log/terminal_color.hpp>
 #include <protocol/message/text_message.hpp>
+#include <protocol/session/disconnect.hpp>
 #include <protocol/session/event.hpp>
 #include <string>
 #include <string_view>
@@ -36,6 +37,7 @@ namespace ts::client::cli {
         void PrintPresence( const protocol::ClientPresenceEvent& event );
         void PrintCommandError( const protocol::CommandErrorEvent& event );
         void PrintPoke( const protocol::PokeEvent& event );
+        void PrintDisconnect( const protocol::DisconnectInfo& info );
 
         void WriteSafe( std::string_view value );
 

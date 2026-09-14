@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <exception>
 #include <map>
+#include <protocol/session/disconnect.hpp>
 #include <string>
 #include <thread>
 
@@ -39,6 +40,9 @@ namespace ts::client {
         void RequestStop();
         void Join();
 
+        /* Why the session ended. Only meaningful once the thread has been joined. */
+        [[nodiscard]] const protocol::DisconnectInfo& Disconnect() const;
+
       private:
         void Run( std::stop_token stopToken );
         void ProcessActions( protocol::Connection& connection );
@@ -61,6 +65,8 @@ namespace ts::client {
         bool m_AudioAvailable = false;
         bool m_AudioTransmitEnabled = false;
         std::uint64_t m_AudioTransmitRevision = 0;
+
+        protocol::DisconnectInfo m_Disconnect;
 
         std::jthread m_Thread;
         std::exception_ptr m_Exception;

@@ -6,6 +6,7 @@
 #include <protocol/message/text_message.hpp>
 #include <protocol/voice/voice.hpp>
 #include <string>
+#include <utility>
 #include <variant>
 
 namespace ts::protocol {
@@ -45,6 +46,29 @@ namespace ts::protocol {
     };
 
     using SessionEvent = std::variant<TextMessageEvent, ClientPresenceEvent, CommandErrorEvent, VoiceEvent, PokeEvent>;
+
+    /*
+     * Overload set built from a pack of lambdas, so a caller can dispatch on
+     * a SessionEvent without hand-rolling an if constexpr chain.
+     */
+    template<typename... Handlers>
+    struct EventVisitor: Handlers... {
+        using Handlers::operator()...;
+    };
+
+    template<typename... Handlers>
+    EventVisitor( Handlers... ) -> EventVisitor<Handlers...>;
+
+    /*
+     * Dispatch event to whichever handler accepts its alternative. Provide a
+     * generic [](const auto&){} handler last to ignore the rest; without one,
+     * leaving an alternative unhandled is a compile error, which is what keeps
+     * callers honest when a new event type is added.
+     */
+    template<typename... Handlers>
+    void Visit( const SessionEvent& event, Handlers&&... handlers ) {
+        std::visit( EventVisitor { std::forward<Handlers>( handlers )... }, event );
+    }
 
 } // namespace ts::protocol
 

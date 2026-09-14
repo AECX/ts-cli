@@ -20,7 +20,7 @@ It does **not** use the proprietary TeamSpeak SDK, and it is **not** a ServerQue
 > `ts-cli` is under active development. The goal is not to reproduce every feature of the desktop client, but to provide a small, capable, understandable terminal client for everyday TeamSpeak use.
 
 > [!TIP]
-> Windows support is experimental: navigation, chat, configuration, and voice (via WASAPI) all work, but the Windows audio backend hasn't been exercised on real hardware yet — see [BUILDING.md](BUILDING.md) for the full picture and known limitations.
+> Windows support is newer than Linux, but navigation, chat, configuration, and voice (via WASAPI) all work on real hardware. A few audio features are still missing there — exclusive mode and live device hot-plug notifications — see [BUILDING.md](BUILDING.md) for the full picture and known limitations.
 
 ## What you can do
 
@@ -193,6 +193,7 @@ The project keeps these boundaries intentionally strict: protocol code does not 
 
 * [Documentation index](docs/README.md)
 * [Usage guide](docs/client/usage.md) — everyday commands and full command reference
+* [Using the protocol library](docs/protocol/api.md) — the C++ API, with worked examples, for writing your own client against `ts-protocol`
 * [Audio and voice](docs/client/audio.md)
 * [Runtime model](docs/client/runtime.md)
 * [Configuration and identity](docs/client/configuration.md)

@@ -1,7 +1,9 @@
 #ifndef TS_PROTOCOL_SESSION_SESSION_HPP
 #define TS_PROTOCOL_SESSION_SESSION_HPP
 
+#include "audio_state.hpp"
 #include "bootstrap.hpp"
+#include "disconnect.hpp"
 #include "event.hpp"
 
 #include <cstdint>
@@ -9,6 +11,7 @@
 #include <optional>
 #include <protocol/client_profile.hpp>
 #include <protocol/command/command.hpp>
+#include <protocol/connection_statistics.hpp>
 #include <protocol/crypto/session_crypto.hpp>
 #include <protocol/message/text_message.hpp>
 #include <protocol/reliability/reliable_command_queue.hpp>
@@ -39,14 +42,26 @@ namespace ts::protocol {
         void SendTextMessage( TextMessageTarget target, std::string_view text );
         void MoveToChannel( std::uint64_t channelId );
         void ChangeNickname( std::string_view nickname );
-        void SetAudioState( bool inputHardware, bool outputHardware, bool inputMuted );
+        void SetAudioState( AudioState state );
         void SendVoice( std::span<const std::byte> data, bool talkStart );
+        void SendWhisper( const WhisperTarget& target, std::span<const std::byte> data, bool talkStart );
+        void SendGroupWhisper( const GroupWhisper& target, std::span<const std::byte> data, bool talkStart );
 
         void ProcessPacket();
         void ProcessTimers();
 
         [[nodiscard]] std::optional<ReliableCommandQueue::TimePoint> NextDeadline() const;
         [[nodiscard]] bool DisconnectPending() const;
+
+        /* True once nothing has been received for SessionTransport::ReceiveTimeout. */
+        [[nodiscard]] bool TimedOut() const;
+
+        /*
+         * Set once the server has removed us from its view, which is how a
+         * kick, a ban or a server shutdown reaches the client. The session
+         * stays usable for draining pending events, but the connection is over.
+         */
+        [[nodiscard]] const std::optional<ServerDisconnect>& ServerRemoval() const;
 
         [[nodiscard]] bool HasEvent() const;
         [[nodiscard]] SessionEvent TakeEvent();
@@ -57,6 +72,7 @@ namespace ts::protocol {
         [[nodiscard]] std::string_view ServerName() const;
         [[nodiscard]] const ChannelStore& Channels() const;
         [[nodiscard]] const ClientStore& Clients() const;
+        [[nodiscard]] ConnectionStatistics::Snapshot Statistics() const;
 
       private:
         void ReceiveInitialState();
@@ -92,6 +108,7 @@ namespace ts::protocol {
         bool m_ConnectionInfoRequested = false;
         std::optional<ReliableCommandQueue::TimePoint> m_LastConnectionInfoSentAt;
         std::optional<std::uint16_t> m_DisconnectPacketId;
+        std::optional<ServerDisconnect> m_ServerRemoval;
         std::deque<SessionEvent> m_Events;
     };
 
