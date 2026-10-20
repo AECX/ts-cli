@@ -22,6 +22,12 @@ namespace ts::audio {
             }
             void SetOutputDevice( std::string_view ) override {
             }
+            DeviceClock InputClock() const override {
+                return {};
+            }
+            DeviceClock OutputClock() const override {
+                return {};
+            }
         };
     } // namespace
 

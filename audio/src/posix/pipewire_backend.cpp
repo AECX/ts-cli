@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <audio/audio_backend.hpp>
 #include <audio/audio_types.hpp>
 #include <charconv>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <pipewire/pipewire.h>
+#include <spa/node/io.h>
 #include <spa/param/audio/format-utils.h>
 #include <span>
 #include <stdexcept>
@@ -199,9 +201,59 @@ namespace ts::audio {
                 pw_thread_loop_unlock( m_Loop );
             }
 
+            DeviceClock InputClock() const override {
+                return m_CaptureClock.Load();
+            }
+
+            DeviceClock OutputClock() const override {
+                return m_PlaybackClock.Load();
+            }
+
           private:
             struct Target {
                 std::uint32_t id = PW_ID_ANY;
+            };
+
+            /*
+             * The graph clock a stream is driven by. io_changed hands over the
+             * graph's position area; each process callback copies its rate and
+             * quantum, so other threads never read PipeWire memory.
+             */
+            struct StreamClock {
+                std::atomic<spa_io_position*> position { nullptr };
+                std::atomic<std::uint32_t> rate { 0 };
+                std::atomic<std::uint32_t> period { 0 };
+
+                void SetIo( std::uint32_t id, void* area, std::uint32_t size ) {
+                    if ( id != SPA_IO_Position ) {
+                        return;
+                    }
+
+                    position.store( area != nullptr && size >= sizeof( spa_io_position ) ? static_cast<spa_io_position*>( area )
+                                                                                         : nullptr,
+                                    std::memory_order_release );
+                }
+
+                void Update() {
+                    const spa_io_position* current = position.load( std::memory_order_acquire );
+                    if ( current == nullptr || current->clock.rate.num == 0 ) {
+                        return;
+                    }
+
+                    rate.store( current->clock.rate.denom / current->clock.rate.num, std::memory_order_relaxed );
+                    period.store( static_cast<std::uint32_t>( current->clock.duration ), std::memory_order_relaxed );
+                }
+
+                void Reset() {
+                    position.store( nullptr, std::memory_order_release );
+                    rate.store( 0, std::memory_order_relaxed );
+                    period.store( 0, std::memory_order_relaxed );
+                }
+
+                [[nodiscard]] DeviceClock Load() const {
+                    return DeviceClock { .rate = rate.load( std::memory_order_relaxed ),
+                                         .period = period.load( std::memory_order_relaxed ) };
+                }
             };
 
             static void RegistryGlobal( void* data,
@@ -268,8 +320,17 @@ namespace ts::audio {
                 } );
             }
 
+            static void CaptureIoChanged( void* data, std::uint32_t id, void* area, std::uint32_t size ) {
+                static_cast<PipeWireBackend*>( data )->m_CaptureClock.SetIo( id, area, size );
+            }
+
+            static void PlaybackIoChanged( void* data, std::uint32_t id, void* area, std::uint32_t size ) {
+                static_cast<PipeWireBackend*>( data )->m_PlaybackClock.SetIo( id, area, size );
+            }
+
             static void CaptureProcess( void* data ) {
                 auto& self = *static_cast<PipeWireBackend*>( data );
+                self.m_CaptureClock.Update();
                 pw_buffer* buffer = pw_stream_dequeue_buffer( self.m_CaptureStream );
 
                 if ( buffer == nullptr ) {
@@ -300,6 +361,7 @@ namespace ts::audio {
 
             static void PlaybackProcess( void* data ) {
                 auto& self = *static_cast<PipeWireBackend*>( data );
+                self.m_PlaybackClock.Update();
                 pw_buffer* buffer = pw_stream_dequeue_buffer( self.m_PlaybackStream );
 
                 if ( buffer == nullptr ) {
@@ -377,6 +439,19 @@ namespace ts::audio {
                 return spa_format_audio_raw_build( &builder, SPA_PARAM_EnumFormat, &info );
             }
 
+            /*
+             * Prefer a graph running at our 48 kHz with one 20 ms frame per
+             * period. PipeWire switches the device to 48 kHz when the system
+             * allows that rate (default.clock.allowed-rates) and nothing else
+             * holds the device at another one; otherwise it resamples. The
+             * period lines device requests up with our frames, so playback
+             * isn't pulled in sizes that straddle frame boundaries.
+             */
+            static void SetClockPreferences( pw_properties* properties ) {
+                pw_properties_setf( properties, PW_KEY_NODE_RATE, "1/%u", SampleRate );
+                pw_properties_setf( properties, PW_KEY_NODE_LATENCY, "%zu/%u", SamplesPerFrame, SampleRate );
+            }
+
             void RecreateCaptureStreamLocked() {
                 DestroyCaptureStreamLocked();
 
@@ -387,6 +462,7 @@ namespace ts::audio {
                                                                PW_KEY_MEDIA_ROLE,
                                                                "Communication",
                                                                nullptr );
+                SetClockPreferences( properties );
 
                 m_CaptureStream = pw_stream_new( m_Core, "ts-cli-capture", properties );
                 if ( m_CaptureStream == nullptr ) {
@@ -397,6 +473,7 @@ namespace ts::audio {
                     pw_stream_events events {};
 
                     events.version = PW_VERSION_STREAM_EVENTS;
+                    events.io_changed = &PipeWireBackend::CaptureIoChanged;
                     events.process = &PipeWireBackend::CaptureProcess;
 
                     return events;
@@ -432,6 +509,7 @@ namespace ts::audio {
                                                                PW_KEY_MEDIA_ROLE,
                                                                "Communication",
                                                                nullptr );
+                SetClockPreferences( properties );
 
                 m_PlaybackStream = pw_stream_new( m_Core, "ts-cli-playback", properties );
                 if ( m_PlaybackStream == nullptr ) {
@@ -442,6 +520,7 @@ namespace ts::audio {
                     pw_stream_events events {};
 
                     events.version = PW_VERSION_STREAM_EVENTS;
+                    events.io_changed = &PipeWireBackend::PlaybackIoChanged;
                     events.process = &PipeWireBackend::PlaybackProcess;
 
                     return events;
@@ -476,6 +555,7 @@ namespace ts::audio {
                 m_CaptureListener = {};
                 pw_stream_destroy( m_CaptureStream );
                 m_CaptureStream = nullptr;
+                m_CaptureClock.Reset();
             }
 
             void DestroyPlaybackStreamLocked() {
@@ -487,6 +567,7 @@ namespace ts::audio {
                 m_PlaybackListener = {};
                 pw_stream_destroy( m_PlaybackStream );
                 m_PlaybackStream = nullptr;
+                m_PlaybackClock.Reset();
             }
 
             void DestroyStreamsLocked() {
@@ -504,6 +585,8 @@ namespace ts::audio {
             spa_hook m_RegistryListener {};
             spa_hook m_CaptureListener {};
             spa_hook m_PlaybackListener {};
+            StreamClock m_CaptureClock;
+            StreamClock m_PlaybackClock;
 
             bool m_Running = false;
             CaptureCallback m_CaptureCallback;

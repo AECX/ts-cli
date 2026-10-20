@@ -34,6 +34,13 @@ namespace ts::audio {
             return true;
         }
 
+        /* Exact for the calling side; the other side may move it meanwhile. */
+        [[nodiscard]] std::size_t Size() const {
+            const std::size_t write = m_Write.load( std::memory_order_acquire );
+            const std::size_t read = m_Read.load( std::memory_order_acquire );
+            return ( write + Capacity - read ) % Capacity;
+        }
+
         void Clear() {
             T ignored;
             while ( TryPop( ignored ) ) {

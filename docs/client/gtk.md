@@ -52,6 +52,7 @@ The *Audio* tab has:
 - microphone and playback device;
 - RNNoise noise suppression;
 - an input level meter with a voice-detected indicator, and the activation threshold slider, so you can see where your voice and your background noise land relative to the threshold;
+- the device clock: the sample rate and period each device runs at, and whether it is resampled (see [Sample rate and device clock](audio.md#sample-rate-and-device-clock));
 - **Test microphone**: plays back exactly what would be transmitted, i.e. after noise suppression, voice activation and Opus encoding/decoding. It stays audible even with the speakers muted.
 
 While *Test microphone* is on, your microphone is muted on the server; turning it off or closing the options restores the previous state. The *Microphone* button is disabled while the options are open. Device, RNNoise and threshold changes apply immediately and are saved to `config.conf`, like `ts-cli`'s `/audio` commands.

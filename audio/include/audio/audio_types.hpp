@@ -88,6 +88,21 @@ namespace ts::audio {
         float activationThresholdDb = -45.0F;
     };
 
+    /*
+     * The clock a stream's device side runs at, as reported by the backend:
+     * the device (or, on PipeWire, graph) sample rate and how many samples
+     * it moves per period at that rate. When the rate differs from
+     * SampleRate the backend resamples. Zero means not known yet, e.g.
+     * before the stream ran its first period.
+     */
+    struct DeviceClock {
+        std::uint32_t rate = 0;
+        std::uint32_t period = 0;
+    };
+
+    /* E.g. "44100 Hz, 1024-sample periods (23.2 ms), resampled", or "unknown". */
+    [[nodiscard]] std::string FormatDeviceClock( const DeviceClock& clock );
+
     struct AudioStatus {
         bool available = false;
         bool transmitEnabled = false;
@@ -101,6 +116,8 @@ namespace ts::audio {
         std::uint64_t encodedDrops = 0;
         std::uint64_t receiveDrops = 0;
         std::uint64_t playbackUnderruns = 0;
+        DeviceClock inputClock;
+        DeviceClock outputClock;
     };
 
 } // namespace ts::audio

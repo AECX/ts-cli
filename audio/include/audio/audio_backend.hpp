@@ -23,6 +23,9 @@ namespace ts::audio {
         [[nodiscard]] virtual std::vector<AudioDevice> Devices() const = 0;
         virtual void SetInputDevice( std::string_view selector ) = 0;
         virtual void SetOutputDevice( std::string_view selector ) = 0;
+
+        [[nodiscard]] virtual DeviceClock InputClock() const = 0;
+        [[nodiscard]] virtual DeviceClock OutputClock() const = 0;
     };
 
     [[nodiscard]] std::unique_ptr<AudioBackend> CreateAudioBackend();

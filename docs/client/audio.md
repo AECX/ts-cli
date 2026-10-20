@@ -31,7 +31,7 @@ Muting is not implemented as a cosmetic local flag. The audio engine advances a 
 
 Speaker mute is the playback-side counterpart, currently exposed by the [GTK client](gtk.md)'s audio bar. Remote voice keeps being decoded, so each talker's jitter/decoder timeline stays in sync, but none of it is mixed into playback while muted; local notification sounds still play. Like the microphone, it is session-only, and the network runtime publishes it to the server as `client_output_muted` so other clients show the usual "sound muted" indicator.
 
-For settings UIs the engine also has a capture monitor that runs the capture path without transmitting anything. *Level* runs capture filtering and the voice-activation gate and exposes the input level and gate state, so a threshold can be tuned against a live meter. *Loopback* additionally feeds the encoded frames, exactly those that would be sent, through the same jitter buffer and Opus decoder as a remote talker into local playback. That makes it a faithful "test microphone": noise suppression, the activation threshold with its hangover, and Opus artifacts are all audible. The loopback talker ignores speaker mute. The GTK client's [audio settings](gtk.md#audio-settings) use both, and mute transmission while they are open.
+For settings UIs the engine also has a capture monitor that runs the capture path without transmitting anything. *Level* runs capture filtering and the voice-activation gate and exposes the input level and gate state, so a threshold can be tuned against a live meter. *Loopback* additionally feeds the encoded frames, exactly those that would be sent, through the same jitter buffer and Opus decoder as a remote talker into local playback. That makes it a faithful "test microphone": noise suppression, the activation threshold with its hangover, and Opus artifacts are all audible. The loopback talker ignores speaker mute. The GTK client's [audio settings](gtk.md#audio) use both, and mute transmission while they are open.
 
 When a talk burst ends, the audio worker emits an empty encoded frame as the TeamSpeak talk-end marker. A new talk burst begins with a short run of packets carrying the talk-start flag.
 
@@ -53,7 +53,7 @@ The current frame size is 20 ms at 48 kHz mono, or 960 PCM samples per frame.
 
 Capture filtering runs on the audio worker rather than the backend's own capture callback. Keeping expensive DSP work off the backend callback reduces the risk of blocking real-time capture.
 
-On Windows, the backend is WASAPI in shared mode instead of PipeWire: `audio/src/win32/wasapi_backend.cpp` requests the exact 48 kHz mono float format directly from `IAudioClient` (relying on WASAPI's shared-mode format conversion rather than a custom resampler) and runs capture and render on their own dedicated threads, each driven by its own WASAPI-signaled event — separate from the audio worker thread described below. Device enumeration and selection go through a third control thread that owns the `IMMDeviceEnumerator`. From the capture filter stage onward, the path is identical to Linux.
+On Windows, the backend is WASAPI in shared mode instead of PipeWire: `audio/src/win32/wasapi_backend.cpp` requests the exact 48 kHz mono float format directly from `IAudioClient` (relying on WASAPI's shared-mode format conversion rather than a custom resampler) and runs capture and render on their own dedicated threads, each driven by its own WASAPI-signaled event — separate from the audio worker thread described below. Device enumeration and selection go through a third control thread that owns the `IMMDeviceEnumerator`. Render keeps only about two device periods queued in WASAPI's buffer, since the engine answers each request from its own queue. From the capture filter stage onward, the path is identical to Linux.
 
 ## Playback path
 
@@ -72,6 +72,8 @@ TeamSpeak Voice/VoiceWhisper packet
 ```
 
 The audio engine tracks jitter, decoder state and queued decoded PCM independently for each talking client. Packets are reordered by TeamSpeak's inner 16-bit voice id before decode. A small bounded prebuffer absorbs ordinary network reordering; confirmed gaps use Opus in-band FEC from the following packet when available, then packet-loss concealment when FEC is unavailable. Voice-id wraparound is handled explicitly.
+
+Mixing is paced by the output device, not by a timer. Each time the backend asks for samples, the audio worker tops the playback queue back up to one request's worth of 20 ms frames plus one frame of slack (`AudioEngine::PlaybackBufferFrames`), queueing silence when nobody talks. A timer would drift against the sound card's clock and, whenever a device request was larger than what happened to be queued, leave a gap that is heard as a click. If the device stops asking (no output device, or a stream that is being rebuilt) for 250 ms, the worker falls back to a 20 ms timer that keeps talkers' jitter buffers moving and discards the mix.
 
 Incoming Opus packet duration is not assumed to be 20 ms. TeamSpeak channel latency settings can produce larger Opus packets, so the decoder accepts up to Opus's 120 ms maximum and splits the decoded PCM into the client's fixed 20 ms playback quanta. This is important for Opus Voice channels as well as Opus Music channels. A malformed packet resets only that talker's receive state instead of marking the entire audio backend unavailable.
 
@@ -101,7 +103,30 @@ Inspect the active selections and counters with:
 /audio status
 ```
 
-The status line includes backend availability, selected input/output, active capture filter, transmit state and capture/encoded/receive drop counters.
+The status line includes backend availability, selected input/output, active capture filter, transmit state, capture/encoded/receive drop counters, playback underruns, and the clock each device runs at (see [Sample rate and device clock](#sample-rate-and-device-clock)).
+
+## Sample rate and device clock
+
+Everything inside the client runs at 48 kHz mono, the rate Opus and TeamSpeak use. Devices often run at another rate (44.1 kHz is common) and with their own period, the number of samples they move at a time. `/audio status` and the GTK client's *Audio* tab show both for each direction, as reported by the backend, e.g.:
+
+```text
+input clock=48000 Hz, 960-sample periods (20.0 ms), output clock=44100 Hz, 1024-sample periods (23.2 ms), resampled
+```
+
+On Linux both streams ask PipeWire for a 48 kHz graph (`node.rate`) and 20 ms periods (`node.latency`). PipeWire switches the device to 48 kHz when the system allows that rate and nothing else holds the device at another one; otherwise it resamples, which `resampled` indicates. Other applications can also ask for shorter periods, and the graph uses the shortest. On Windows, WASAPI's shared mode always resamples to the device's mix format, so the rate shown there is the one set in the Windows sound settings.
+
+Resampling itself is clean. Should audio still crackle:
+
+1. Check `/audio status`. A rising `underruns` count means the device asked for audio the client didn't have ready in time, usually because the machine was too busy.
+2. If the output shows `resampled` and the device supports 48 kHz, let PipeWire switch to it by allowing that rate, e.g. in `~/.config/pipewire/pipewire.conf.d/rates.conf`, then restart PipeWire (`systemctl --user restart pipewire`):
+
+   ```text
+   context.properties = {
+       default.clock.allowed-rates = [ 44100 48000 ]
+   }
+   ```
+
+3. Very short periods (below about 5 ms) need a responsive system. Raising PipeWire's minimum quantum (`default.clock.min-quantum = 512`) trades a little latency for headroom.
 
 ## Per-user playback volume
 
@@ -184,6 +209,6 @@ This preserves the project's single-network-thread state model while allowing au
 
 Input/output selection, capture-filter selection and activation threshold are persisted to `config.conf`. Mute state is session-only and starts disabled on every launch.
 
-The receive jitter buffer is deliberately small and bounded rather than adaptive like a mature desktop VoIP client. Device hotplug/recovery and DSP chaining are also intentionally minimal at this stage — on both platforms, a device that changes while the client is running needs `/audio input`/`/audio output` to pick it up rather than switching automatically. WASAPI exclusive mode is not used; the Windows backend is shared-mode only.
+The receive jitter buffer is deliberately small and bounded rather than adaptive like a mature desktop VoIP client. It doesn't compensate for clock drift between a talker's sound card and yours beyond its bounds either. Device hotplug/recovery and DSP chaining are also intentionally minimal at this stage — on both platforms, a device that changes while the client is running needs `/audio input`/`/audio output` to pick it up rather than switching automatically. WASAPI exclusive mode is not used; the Windows backend is shared-mode only.
 
 Related chapters: [Runtime model](runtime.md), [Voice protocol](../protocol/voice.md).
