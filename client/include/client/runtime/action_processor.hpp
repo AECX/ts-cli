@@ -12,10 +12,6 @@ namespace ts::audio {
     class AudioEngine;
 }
 
-namespace ts::config {
-    class UserConfigStore;
-}
-
 namespace ts::protocol {
     class Connection;
 } // namespace ts::protocol
@@ -36,6 +32,7 @@ namespace ts::client {
 
         void ProcessListTree( protocol::Connection& connection, const ListTreeAction& action );
         void ProcessUserSettings( protocol::Connection& connection, const UserSettingsAction& action );
+        void ProcessSetUserAudio( protocol::Connection& connection, const SetUserAudioAction& action );
         void PushError( std::string message );
         void PushInfo( std::string message );
 

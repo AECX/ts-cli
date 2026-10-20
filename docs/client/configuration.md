@@ -2,7 +2,7 @@
 
 `ts-cli` intentionally supports one local TeamSpeak identity. Ordinary client preferences, the local identity, and preferences about remote users are stored separately so each file has one clear responsibility.
 
-All of this is implemented once, in the `ts-config` library (`config/`), and front ends never read or write these files themselves. That includes applying the saved `[audio]` settings to the audio engine at startup (`ApplyAudioSettings`): a saved device or filter that isn't available right now is logged as a warning and skipped, and the remaining settings still apply.
+All of this is implemented once, in the `ts-config` library (`config/`), and shared by `ts-cli` and `ts-gtk`. Neither front end reads or writes these files itself. That includes applying the saved `[audio]` settings to the audio engine at startup (`ApplyAudioSettings`): a saved device or filter that isn't available right now is logged as a warning and skipped, and the remaining settings still apply.
 
 ## Layout
 
@@ -108,5 +108,7 @@ A nickname is resolved against current live client state and then converted to t
 ## First-run setup
 
 When no `config.conf` exists, `ts-cli` runs an interactive setup that collects the client profile. If there is no `identity` file it also creates/imports the one local TeamSpeak identity and calculates its key offset. If an identity file already exists, setup validates and preserves it.
+
+The [GTK client](gtk.md) reads and writes the same files. Without a terminal to prompt on, its first run writes the default client profile and, if there is no `identity` yet, generates one at the default security level; an existing identity is preserved just like in the interactive setup. Run `ts-cli` once first if you want to import an identity or use a custom profile.
 
 See [Audio and voice](audio.md) for runtime audio behavior and [Runtime model](runtime.md) for ownership/threading.

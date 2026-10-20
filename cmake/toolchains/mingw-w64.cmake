@@ -3,7 +3,7 @@
 # CMAKE_CROSSCOMPILING_EMULATOR, so `ctest` works unmodified).
 #
 # Usage (`make windows-cross` does all of this):
-#   python3 -I cmake/msys2/fetch_packages.py build/deps/msys2-ucrt64 openssl libsodium opus rnnoise
+#   python3 -I cmake/msys2/fetch_packages.py build/deps/msys2-ucrt64 openssl libsodium opus rnnoise [gtkmm-4.0 ...]
 #   cmake -S . -B build/windows-cross -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64.cmake
 #   cmake --build build/windows-cross
 #   ctest --test-dir build/windows-cross --output-on-failure
@@ -12,7 +12,7 @@
 #   mingw-w64-gcc mingw-w64-binutils mingw-w64-crt mingw-w64-headers mingw-w64-winpthreads
 # and `wine` to run the cross-compiled binaries.
 #
-# Libraries (OpenSSL, libsodium, Opus and RNNoise) are not
+# Libraries (OpenSSL, libsodium, Opus, RNNoise, and GTK for ts-gtk) are not
 # taken from the host. They come prebuilt from MSYS2's UCRT64 repository,
 # which uses the same UCRT C runtime and GCC as mingw-w64-gcc, fetched into
 # one sysroot by cmake/msys2/fetch_packages.py. Everything links

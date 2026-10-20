@@ -1,23 +1,49 @@
-add_library(ts-client-support STATIC
+# The network runtime shared by every front end. It processes the terminal
+# client's name-based actions too, so it carries their target resolution and
+# tree formatting, but no command parsing or terminal output.
+add_library(ts-client-runtime STATIC
     src/cli/channel_tree_view.cpp
-    src/cli/command_handler.cpp
-    src/cli/command_parser.cpp
-    src/cli/presentation.cpp
     src/cli/target_resolver.cpp
     src/runtime/action_processor.cpp
     src/runtime/action_queue.cpp
     src/runtime/event_queue.cpp
     src/runtime/network_runtime.cpp
+    src/runtime/server_snapshot.cpp
+    src/runtime/talker_activity.cpp
 )
 
-target_include_directories(ts-client-support
+target_include_directories(ts-client-runtime
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_compile_features(ts-client-support
+target_compile_features(ts-client-runtime
     PUBLIC
         cxx_std_20
+)
+
+target_compile_options(ts-client-runtime
+    PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+)
+
+target_link_libraries(ts-client-runtime
+    PUBLIC
+        ts-config
+        ts-protocol
+        ts-audio
+        ts-log
+)
+
+# The terminal client: slash commands, terminal presentation and console I/O.
+add_library(ts-client-support STATIC
+    src/cli/command_handler.cpp
+    src/cli/command_parser.cpp
+    src/cli/presentation.cpp
 )
 
 target_compile_options(ts-client-support
@@ -31,10 +57,7 @@ target_compile_options(ts-client-support
 
 target_link_libraries(ts-client-support
     PUBLIC
-        ts-config
-        ts-protocol
-        ts-audio
-        ts-log
+        ts-client-runtime
 )
 
 # Everything above this point is target-agnostic: it only sees the

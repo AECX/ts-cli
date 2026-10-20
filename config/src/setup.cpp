@@ -98,6 +98,19 @@ namespace ts::config {
         return config;
     }
 
+    Config ConfigSetup::CreateDefault( const std::filesystem::path& configPath, const std::filesystem::path& identityPath ) {
+        if ( std::filesystem::exists( identityPath ) ) {
+            (void)IdentityStore::Load( identityPath );
+        } else {
+            IdentityStore::Save( identityPath,
+                                 IdentityStore::Create( protocol::Identity {}, IdentityStore::DefaultSecurityLevel() ) );
+        }
+
+        Config config = Config::Create( Config::DefaultProfile() );
+        config.Save( configPath );
+        return config;
+    }
+
     std::string ConfigSetup::Prompt( std::istream& input,
                                      std::ostream& output,
                                      std::string_view label,

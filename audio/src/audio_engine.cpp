@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -150,9 +151,38 @@ namespace ts::audio {
         return state;
     }
 
+    void AudioEngine::SetPlaybackMuted( bool muted ) {
+        if ( m_PlaybackMuted.exchange( muted, std::memory_order_acq_rel ) != muted ) {
+            NotifyNetwork();
+        }
+    }
+
+    bool AudioEngine::PlaybackMuted() const {
+        return m_PlaybackMuted.load( std::memory_order_acquire );
+    }
+
+    void AudioEngine::SetCaptureMonitor( CaptureMonitor monitor ) {
+        if ( monitor != CaptureMonitor::Off ) {
+            RequireAvailable();
+        }
+
+        m_CaptureMonitor.store( monitor, std::memory_order_release );
+        WakeWorker();
+    }
+
+    CaptureMonitor AudioEngine::CaptureMonitorMode() const {
+        return m_CaptureMonitor.load( std::memory_order_acquire );
+    }
+
+    InputLevel AudioEngine::CurrentInputLevel() const {
+        return InputLevel { .levelDb = m_InputLevelDb.load( std::memory_order_relaxed ),
+                            .voiceActive = m_InputVoiceActive.load( std::memory_order_relaxed ) };
+    }
+
     AudioStatus AudioEngine::Status() const {
         AudioStatus status;
         status.transmitEnabled = TransmitEnabled();
+        status.playbackMuted = PlaybackMuted();
         status.captureDrops = m_CaptureDrops.load( std::memory_order_relaxed );
         status.encodedDrops = m_EncodedDrops.load( std::memory_order_relaxed );
         status.receiveDrops = m_ReceiveDrops.load( std::memory_order_relaxed );
@@ -214,8 +244,21 @@ namespace ts::audio {
         WakeWorker();
     }
 
+    std::set<std::uint16_t> AudioEngine::MutedTalkers() const {
+        std::set<std::uint16_t> muted;
+        std::scoped_lock lock( m_TalkerSettingsMutex );
+
+        for ( const auto& [clientId, settings] : m_TalkerMixSettings ) {
+            if ( settings.muted ) {
+                muted.insert( clientId );
+            }
+        }
+
+        return muted;
+    }
+
     void AudioEngine::OnCapturedSamples( std::span<const float> samples ) {
-        if ( !TransmitEnabled() ) {
+        if ( !TransmitEnabled() && CaptureMonitorMode() == CaptureMonitor::Off ) {
             m_CaptureAssemblyOffset = 0;
             return;
         }
@@ -283,6 +326,7 @@ namespace ts::audio {
         }
 
         TransmitStateChange workerState;
+        CaptureMonitor workerMonitor = CaptureMonitor::Off;
         CaptureGate captureGate;
         std::size_t talkStartRemaining = 0;
         auto nextMix = std::chrono::steady_clock::now() + 20ms;
@@ -291,7 +335,7 @@ namespace ts::audio {
         try {
             while ( !stopToken.stop_requested() ) {
                 if ( encoder ) {
-                    ProcessCapture( *encoder, workerState, captureGate, talkStartRemaining );
+                    ProcessCapture( *encoder, workerState, workerMonitor, captureGate, talkStartRemaining );
                 }
 
                 ProcessIncoming();
@@ -333,27 +377,40 @@ namespace ts::audio {
 
     void AudioEngine::ProcessCapture( Encoder& encoder,
                                       TransmitStateChange& workerState,
+                                      CaptureMonitor& workerMonitor,
                                       CaptureGate& gate,
                                       std::size_t& talkStartRemaining ) {
         const TransmitStateChange desiredState = LoadTransmitState();
+        const CaptureMonitor desiredMonitor = CaptureMonitorMode();
 
-        if ( desiredState.revision != workerState.revision ) {
+        if ( desiredState.revision != workerState.revision || desiredMonitor != workerMonitor ) {
             const bool wasTalking = gate.Active();
+            const bool wasTransmitting = workerState.enabled;
+            const bool wasLoopback = workerMonitor == CaptureMonitor::Loopback;
+
             workerState = desiredState;
+            workerMonitor = desiredMonitor;
             encoder.Reset();
             gate.Reset();
             m_CaptureQueue.Clear();
             talkStartRemaining = 0;
+            m_InputLevelDb.store( -100.0F, std::memory_order_relaxed );
+            m_InputVoiceActive.store( false, std::memory_order_relaxed );
 
-            if ( !workerState.enabled && wasTalking ) {
+            if ( wasTalking && wasTransmitting ) {
                 QueueTalkEnd( workerState.revision );
+            }
+
+            if ( wasLoopback ) {
+                m_Talkers.erase( LoopbackTalkerId );
             }
         }
 
-        if ( !workerState.enabled ) {
+        if ( !workerState.enabled && workerMonitor == CaptureMonitor::Off ) {
             return;
         }
 
+        const bool loopback = workerMonitor == CaptureMonitor::Loopback;
         PcmFrame pcm;
 
         while ( m_CaptureQueue.TryPop( pcm ) ) {
@@ -364,10 +421,21 @@ namespace ts::audio {
 
             const bool wasTalking = gate.Active();
             const bool shouldTransmit = gate.Process( pcm, ActivationThresholdDb() );
+            m_InputLevelDb.store( gate.LevelDb(), std::memory_order_relaxed );
+            m_InputVoiceActive.store( shouldTransmit, std::memory_order_relaxed );
 
             if ( !shouldTransmit ) {
                 if ( wasTalking ) {
-                    QueueTalkEnd( workerState.revision );
+                    if ( workerState.enabled ) {
+                        QueueTalkEnd( workerState.revision );
+                    }
+
+                    if ( loopback ) {
+                        EncodedFrame end;
+                        end.talkEnd = true;
+                        PlayLoopback( end );
+                    }
+
                     encoder.Reset();
                     talkStartRemaining = 0;
                 }
@@ -388,6 +456,14 @@ namespace ts::audio {
                 --talkStartRemaining;
             }
 
+            if ( loopback ) {
+                PlayLoopback( encoded );
+            }
+
+            if ( !workerState.enabled ) {
+                continue;
+            }
+
             if ( !m_OutgoingQueue.TryPush( encoded ) ) {
                 /*
                  * Audio is latency-sensitive. If the network side is behind,
@@ -399,6 +475,29 @@ namespace ts::audio {
                 NotifyNetwork();
             }
         }
+    }
+
+    void AudioEngine::PlayLoopback( const EncodedFrame& frame ) {
+        /*
+         * Feed the encoded frame through the same jitter buffer/decoder path
+         * as a remote talker, so the test sounds like what others hear.
+         */
+        IncomingEncodedFrame incoming;
+        incoming.clientId = LoopbackTalkerId;
+        incoming.voiceId = m_LoopbackVoiceId++;
+        incoming.codec = 4;
+        incoming.size = frame.size;
+        incoming.talkStart = frame.talkStart;
+        incoming.talkEnd = frame.talkEnd;
+        std::copy_n( frame.data.begin(), frame.size, incoming.data.begin() );
+
+        TalkerState& talker = m_Talkers[LoopbackTalkerId];
+
+        if ( !talker.decoder ) {
+            talker.decoder = CreateDecoder();
+        }
+
+        talker.jitter.Push( incoming );
     }
 
     void AudioEngine::QueueTalkEnd( std::uint64_t transmitRevision ) {
@@ -449,6 +548,8 @@ namespace ts::audio {
             std::scoped_lock lock( m_TalkerSettingsMutex );
             mixSettings = m_TalkerMixSettings;
         }
+
+        const bool playbackMuted = PlaybackMuted();
 
         for ( auto& [clientId, talker] : m_Talkers ) {
             if ( !talker.decoder ) {
@@ -538,7 +639,7 @@ namespace ts::audio {
             const auto configured = mixSettings.find( clientId );
             const TalkerMixSettings settings = configured == mixSettings.end() ? TalkerMixSettings {} : configured->second;
 
-            if ( settings.muted ) {
+            if ( settings.muted || ( playbackMuted && clientId != LoopbackTalkerId ) ) {
                 continue;
             }
 

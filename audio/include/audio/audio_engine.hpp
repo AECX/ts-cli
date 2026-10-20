@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -53,6 +54,24 @@ namespace ts::audio {
         [[nodiscard]] bool TransmitEnabled() const;
         [[nodiscard]] std::optional<TransmitStateChange> TakeTransmitStateChange();
 
+        /*
+         * Session-only speaker mute: remote voice is decoded but left out of
+         * the mix. Local notification sounds still play.
+         */
+        void SetPlaybackMuted( bool muted );
+        [[nodiscard]] bool PlaybackMuted() const;
+
+        /*
+         * Runs the capture path independently of transmission, for a settings
+         * UI: Level meters the filtered input against the activation
+         * threshold; Loopback also decodes exactly the Opus frames that would
+         * be transmitted and plays them back locally (even while speakers are
+         * muted). Never sends anything to the network by itself.
+         */
+        void SetCaptureMonitor( CaptureMonitor monitor );
+        [[nodiscard]] CaptureMonitor CaptureMonitorMode() const;
+        [[nodiscard]] InputLevel CurrentInputLevel() const;
+
         [[nodiscard]] AudioStatus Status() const;
         void Notify( NotificationType type );
 
@@ -60,6 +79,8 @@ namespace ts::audio {
         bool SubmitIncoming( const IncomingEncodedFrame& frame );
         void SetTalkerSettings( std::uint16_t clientId, const TalkerSettings& settings );
         void RemoveTalker( std::uint16_t clientId );
+        /* Talkers whose per-user settings leave them out of the mix. */
+        [[nodiscard]] std::set<std::uint16_t> MutedTalkers() const;
 
       private:
         struct TalkerState {
@@ -79,9 +100,11 @@ namespace ts::audio {
         void Worker( std::stop_token stopToken );
         void ProcessCapture( Encoder& encoder,
                              TransmitStateChange& workerState,
+                             CaptureMonitor& workerMonitor,
                              CaptureGate& gate,
                              std::size_t& talkStartRemaining );
         void QueueTalkEnd( std::uint64_t transmitRevision );
+        void PlayLoopback( const EncodedFrame& frame );
         [[nodiscard]] TransmitStateChange LoadTransmitState() const;
         void ProcessIncoming();
         void MixPlayback();
@@ -95,6 +118,9 @@ namespace ts::audio {
         static constexpr std::size_t PlaybackQueueCapacity = 32;
         static constexpr std::size_t TalkStartPackets = 5;
         static constexpr std::uint8_t NoNotificationRequested = 0xFF;
+
+        /* Real TeamSpeak client IDs are never 0, so the loopback talker can't collide with one. */
+        static constexpr std::uint16_t LoopbackTalkerId = 0;
 
         std::unique_ptr<AudioBackend> m_Backend;
         NetworkWakeCallback m_NetworkWake;
@@ -118,6 +144,11 @@ namespace ts::audio {
         std::atomic<std::uint8_t> m_NotificationRequested { NoNotificationRequested };
         std::atomic<std::uint64_t> m_TransmitState { 2 };
         std::atomic<float> m_ActivationThresholdDb { -45.0F };
+        std::atomic<bool> m_PlaybackMuted { false };
+        std::atomic<CaptureMonitor> m_CaptureMonitor { CaptureMonitor::Off };
+        std::atomic<float> m_InputLevelDb { -100.0F };
+        std::atomic<bool> m_InputVoiceActive { false };
+        std::uint16_t m_LoopbackVoiceId = 0;
         std::uint64_t m_NetworkTransmitRevision = 0;
 
         std::atomic<std::uint64_t> m_WorkSignal { 0 };

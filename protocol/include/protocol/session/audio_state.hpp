@@ -15,6 +15,7 @@ namespace ts::protocol {
         bool outputHardware = true;
 
         bool inputMuted = false;
+        bool outputMuted = false;
     };
 
 } // namespace ts::protocol

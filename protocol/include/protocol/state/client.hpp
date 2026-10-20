@@ -29,6 +29,8 @@ namespace ts::protocol {
          * partial client so channel placement is not lost.
          */
         bool detailsKnown = false;
+
+        bool operator==( const Client& ) const = default;
     };
 
 } // namespace ts::protocol

@@ -30,6 +30,8 @@ namespace ts::protocol {
         std::uint8_t codec = 4;
         bool codecIsUnencrypted = true;
         bool subscribed = false;
+
+        bool operator==( const Channel& ) const = default;
     };
 
     struct ChannelTreeEntry {

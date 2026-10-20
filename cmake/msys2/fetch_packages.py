@@ -3,7 +3,8 @@
 
 The MinGW-w64 cross toolchain on Linux targets the same UCRT runtime as
 MSYS2's UCRT64 environment, so MSYS2's binary packages can serve as the
-Windows sysroot instead of cross-building every library locally.
+Windows sysroot for libraries that are impractical to cross-build locally
+(the GTK 4 / gtkmm stack used by ts-gtk).
 
 Usage:
     fetch_packages.py <destination> <package> [<package> ...]
@@ -105,7 +106,7 @@ def main() -> int:
     stamp = destination / "packages.stamp"
     request = " ".join(roots)
 
-    # A subset of what's already there needs nothing new.
+    # A subset of what's already there (e.g. a build without GTK) needs nothing new.
     if stamp.exists() and set(roots) <= set(stamp.read_text().splitlines()[0].split()):
         return 0
 

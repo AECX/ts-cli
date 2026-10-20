@@ -159,6 +159,7 @@ namespace ts::protocol {
         writer.Write( "client_input_hardware", state.inputHardware );
         writer.Write( "client_output_hardware", state.outputHardware );
         writer.Write( "client_input_muted", state.inputMuted );
+        writer.Write( "client_output_muted", state.outputMuted );
         m_SessionTransport.SendCommand( writer.Take() );
     }
 

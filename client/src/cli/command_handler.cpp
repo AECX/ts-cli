@@ -86,7 +86,7 @@ namespace ts::client::cli {
                             return true;
                         }
 
-                        m_ActionQueue.Push( SendReplyMessageAction { .target = *m_ReplyTarget, .text = command.text } );
+                        m_ActionQueue.Push( SendTextMessageAction { .target = *m_ReplyTarget, .text = command.text } );
                     } else if constexpr ( std::is_same_v<CommandType, JoinCommand> ) {
                         m_ActionQueue.Push( JoinChannelAction { .channel = command.channel } );
                     } else if constexpr ( std::is_same_v<CommandType, NickCommand> ) {

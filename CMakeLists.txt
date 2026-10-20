@@ -22,6 +22,8 @@ pkg_check_modules(
 
 include(CTest)
 
+option(TS_BUILD_GTK_CLIENT "Build the GTK client (requires gtkmm-4.0)" ON)
+
 # Windows has no system package manager for these libraries, so each
 # executable is shipped as a folder with the DLLs it imports, taken from
 # this MSYS2 UCRT64 prefix (the build environment itself for windows-msys;
@@ -45,3 +47,7 @@ add_subdirectory(protocol)
 add_subdirectory(audio)
 add_subdirectory(config)
 add_subdirectory(client)
+
+if(TS_BUILD_GTK_CLIENT)
+    add_subdirectory(client-gtk)
+endif()
