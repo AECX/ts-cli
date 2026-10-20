@@ -35,12 +35,13 @@ Releases are cut with `make release`, which requires a clean working tree and on
 
 Keep responsibilities separated:
 
-- `client/` — CLI, configuration, application runtime and later UI/audio coordination
+- `config/` — configuration: XDG/AppData paths, `config.conf`, the identity file, per-user settings, first-run setup, and applying saved audio settings to an engine; shared by every front end
+- `client/` — CLI, application runtime and later UI/audio coordination
 - `log/` — logging and sinks
 - `net/` — networking primitives
 - `protocol/` — TeamSpeak wire protocol, crypto, transport, typed messages and protocol state
 
-The protocol layer must not read configuration files, inspect XDG paths, or depend on terminal/UI behavior.
+The protocol layer must not read configuration files, inspect XDG paths, or depend on terminal/UI behavior. Front ends must not parse or write configuration files themselves; anything a second front end would duplicate belongs in `config/`.
 
 Prefer typed messages and state objects over raw command strings in higher layers. Avoid generic `Utils` classes and large procedural grab-bags.
 
@@ -52,7 +53,7 @@ Prefer typed messages and state objects over raw command strings in higher layer
 - an abstract backend interface (`net::SocketBackend`, `audio::AudioBackend`) or a set of free functions, plus a `Create*Backend()` factory declared next to it where a stateful backend is needed;
 - one concrete backend implementation per build target, kept in its own source subdirectory (`net/src/posix/` + `net/src/win32/`, `log/src/posix/` + `log/src/win32/`, `audio/src/posix/pipewire_backend.cpp` + `audio/src/win32/wasapi_backend.cpp`) and selected by `CMakeLists.txt` based on the target platform — never by `#ifdef` scattered through shared source.
 
-`client/platform/console_io.hpp` and `client/platform/terminal_control.hpp` follow the same pattern for interactive-terminal/stdin handling and cursor control (`client/src/platform/posix/`, `client/src/platform/win32/`), since those are also inherently OS-specific. `audio` ships a real backend on both targets now (PipeWire/Opus on Linux, WASAPI/Opus on Windows); Opus and RNNoise (`audio/src/opus_codec.cpp`, `audio/src/rnnoise_filter.cpp`) are platform-agnostic and stay outside the `posix/`/`win32/` split entirely, wired in once regardless of which backend gets picked.
+`config/platform/paths.hpp` and `config/platform/secure_file.hpp` (`config/src/posix/` + `config/src/win32/`) follow the same pattern for the per-user config directory and owner-only file permissions. `client/platform/console_io.hpp` and `client/platform/terminal_control.hpp` follow the same pattern for interactive-terminal/stdin handling and cursor control (`client/src/platform/posix/`, `client/src/platform/win32/`), since those are also inherently OS-specific. `audio` ships a real backend on both targets now (PipeWire/Opus on Linux, WASAPI/Opus on Windows); Opus and RNNoise (`audio/src/opus_codec.cpp`, `audio/src/rnnoise_filter.cpp`) are platform-agnostic and stay outside the `posix/`/`win32/` split entirely, wired in once regardless of which backend gets picked.
 
 When adding a backend for a target that doesn't have one yet, this is the checklist: implement the missing backend against the existing interface headers, add the corresponding `CMakeLists.txt` branch, and leave every consumer above the backend layer untouched. If a new primitive needs OS-specific types at all, give it the same treatment rather than including platform headers from a public header.
 

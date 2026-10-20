@@ -1,10 +1,10 @@
-#include <client/platform/secure_file.hpp>
+#include <config/platform/secure_file.hpp>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <windows.h>
 
-namespace ts::client::platform {
+namespace ts::config::platform {
 
     namespace {
 
@@ -154,4 +154,4 @@ namespace ts::client::platform {
          */
     }
 
-} // namespace ts::client::platform
+} // namespace ts::config::platform

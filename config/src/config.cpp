@@ -1,24 +1,18 @@
 #include <charconv>
-#include <client/config/config.hpp>
-#include <client/platform/secure_file.hpp>
 #include <cmath>
-#include <cstddef>
+#include <config/config.hpp>
+#include <config/platform/secure_file.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
 #include <map>
-#include <optional>
-#include <protocol/crypto/hash_cash.hpp>
-#include <protocol/encoding/base64.hpp>
-#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
-namespace ts::client {
+namespace ts::config {
 
     namespace {
         constexpr std::uint64_t MaxConfigSize = 1024 * 1024;
@@ -31,9 +25,7 @@ namespace ts::client {
             throw std::runtime_error( "Config does not exist: " + path.string() );
         }
 
-        bool migrated = false;
-        Config config = Parse( *data, migrated );
-        config.m_NeedsSave = migrated;
+        Config config = Parse( *data );
         config.m_Path = path;
         return config;
     }
@@ -99,6 +91,11 @@ namespace ts::client {
         Save( *m_Path );
     }
 
+    void Config::Update( const ConfigMutator& mutator ) {
+        mutator( *this );
+        Save();
+    }
+
     protocol::ClientProfile Config::Profile() const {
         if ( m_Nickname.empty() ) {
             throw std::runtime_error( "Client nickname cannot be empty" );
@@ -140,25 +137,7 @@ namespace ts::client {
         m_Nickname = std::move( nickname );
     }
 
-    bool Config::NeedsSave() const {
-        return m_NeedsSave;
-    }
-
-    bool Config::HasLegacyIdentity() const {
-        return m_HasLegacyIdentity;
-    }
-
-    LegacyIdentityConfig Config::LegacyIdentity() const {
-        return m_LegacyIdentity;
-    }
-
-    void Config::ClearLegacyIdentity() {
-        m_HasLegacyIdentity = false;
-        m_LegacyIdentity = LegacyIdentityConfig {};
-        m_NeedsSave = true;
-    }
-
-    Config Config::Parse( std::string_view data, bool& migrated ) {
+    Config Config::Parse( std::string_view data ) {
         const protocol::ClientProfile defaultProfile = DefaultProfile();
 
         Config config;
@@ -172,10 +151,6 @@ namespace ts::client {
         config.m_ClientPlatform = defaultProfile.version.platform;
 
         config.m_ClientVersionSignature = defaultProfile.version.signature;
-
-        config.m_LegacyIdentity.securityLevel = IdentityStore::DefaultSecurityLevel();
-
-        migrated = false;
 
         std::map<std::string, std::string> values;
 
@@ -223,9 +198,8 @@ namespace ts::client {
             }
 
             if ( name != "nickname" && name != "client_init_version" && name != "client_version" && name != "client_platform" &&
-                 name != "client_version_sign" && name != "identity_security_level" && name != "identity_private_key" &&
-                 name != "identity_key_offset" && name != "version_profile" && name != "audio_input" &&
-                 name != "audio_output" && name != "audio_filter" && name != "audio_activation_threshold_db" ) {
+                 name != "client_version_sign" && name != "audio_input" && name != "audio_output" && name != "audio_filter" &&
+                 name != "audio_activation_threshold_db" ) {
                 throw std::runtime_error( "Unknown config key: " + std::string( name ) );
             }
 
@@ -236,26 +210,6 @@ namespace ts::client {
             if ( !inserted ) {
                 throw std::runtime_error( "Duplicate config key: " + std::string( name ) );
             }
-        }
-
-        if ( const auto legacyProfile = values.find( "version_profile" ); legacyProfile != values.end() ) {
-            if ( legacyProfile->second == "ts3-linux-3.6.2" ) {
-                /*
-                 * The default explicit tuple represents the
-                 * old built-in profile.
-                 */
-            } else if ( legacyProfile->second == "custom" ) {
-                const bool hasCustomFields = values.contains( "client_init_version" ) || values.contains( "client_version" ) ||
-                                             values.contains( "client_platform" ) || values.contains( "client_version_sign" );
-
-                if ( !hasCustomFields ) {
-                    throw std::runtime_error( "Legacy custom version profile has no client version fields" );
-                }
-            } else {
-                throw std::runtime_error( "Unsupported legacy version profile: " + legacyProfile->second );
-            }
-
-            migrated = true;
         }
 
         if ( const auto value = values.find( "nickname" ); value != values.end() ) {
@@ -288,31 +242,6 @@ namespace ts::client {
             config.m_ClientVersionSignature = value->second;
         }
 
-        if ( const auto value = values.find( "identity_security_level" ); value != values.end() ) {
-            const std::uint64_t parsed = ParseUnsigned( value->second, "identity_security_level" );
-
-            if ( parsed > 32 ) {
-                throw std::runtime_error( "identity_security_level is too large" );
-            }
-
-            config.m_LegacyIdentity.securityLevel = static_cast<std::uint8_t>( parsed );
-            config.m_HasLegacyIdentity = true;
-        }
-
-        if ( const auto value = values.find( "identity_private_key" ); value != values.end() ) {
-            config.m_LegacyIdentity.encodedPrivateKey = value->second;
-            config.m_HasLegacyIdentity = true;
-        }
-
-        if ( const auto value = values.find( "identity_key_offset" ); value != values.end() ) {
-            if ( value->second.empty() ) {
-                config.m_LegacyIdentity.keyOffset = std::nullopt;
-            } else {
-                config.m_LegacyIdentity.keyOffset = ParseUnsigned( value->second, "identity_key_offset" );
-            }
-            config.m_HasLegacyIdentity = true;
-        }
-
         (void)config.Profile();
 
         if ( const auto value = values.find( "audio_input" ); value != values.end() ) {
@@ -343,11 +272,6 @@ namespace ts::client {
                  config.m_AudioSettings.activationThresholdDb > 0.0F ) {
                 throw std::runtime_error( "audio_activation_threshold_db must be between -100 and 0" );
             }
-        }
-
-        if ( !values.contains( "audio_input" ) || !values.contains( "audio_output" ) || !values.contains( "audio_filter" ) ||
-             !values.contains( "audio_activation_threshold_db" ) ) {
-            migrated = true;
         }
 
         return config;
@@ -410,4 +334,4 @@ namespace ts::client {
         return value;
     }
 
-} // namespace ts::client
+} // namespace ts::config

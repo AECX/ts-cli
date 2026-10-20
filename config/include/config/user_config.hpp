@@ -1,11 +1,11 @@
-#ifndef TS_CLIENT_CONFIG_USER_CONFIG_HPP
-#define TS_CLIENT_CONFIG_USER_CONFIG_HPP
+#ifndef TS_CONFIG_USER_CONFIG_HPP
+#define TS_CONFIG_USER_CONFIG_HPP
 
 #include <filesystem>
 #include <string>
 #include <string_view>
 
-namespace ts::client {
+namespace ts::config {
 
     struct UserConfig {
         float volumeDb = 0.0F;
@@ -31,6 +31,6 @@ namespace ts::client {
         std::filesystem::path m_Directory;
     };
 
-} // namespace ts::client
+} // namespace ts::config
 
-#endif // TS_CLIENT_CONFIG_USER_CONFIG_HPP
+#endif // TS_CONFIG_USER_CONFIG_HPP

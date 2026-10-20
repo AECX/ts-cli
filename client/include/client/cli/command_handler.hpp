@@ -3,10 +3,10 @@
 
 #include <audio/audio_engine.hpp>
 #include <client/cli/command.hpp>
-#include <client/config/config.hpp>
 #include <client/notification.hpp>
 #include <client/runtime/action_queue.hpp>
 #include <client/runtime/event.hpp>
+#include <config/config.hpp>
 #include <functional>
 #include <optional>
 #include <protocol/message/text_message.hpp>
@@ -18,7 +18,7 @@ namespace ts::client::cli {
 
     class CommandHandler {
       public:
-        using PersistConfigCallback = std::function<void( const client::ConfigMutator& )>;
+        using PersistConfigCallback = std::function<void( const config::ConfigMutator& )>;
 
         CommandHandler( ActionQueue& actionQueue,
                         Presentation& presentation,

@@ -1,9 +1,9 @@
-#include <client/platform/paths.hpp>
+#include <config/platform/paths.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
 
-namespace ts::client::platform {
+namespace ts::config::platform {
 
     std::filesystem::path ConfigHomeDirectory() {
         const char* value = std::getenv( "APPDATA" );
@@ -21,4 +21,4 @@ namespace ts::client::platform {
         return path;
     }
 
-} // namespace ts::client::platform
+} // namespace ts::config::platform

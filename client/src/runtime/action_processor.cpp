@@ -3,12 +3,12 @@
 #include <audio/audio_types.hpp>
 #include <client/cli/channel_tree_view.hpp>
 #include <client/cli/target_resolver.hpp>
-#include <client/config/user_config.hpp>
 #include <client/runtime/action.hpp>
 #include <client/runtime/action_processor.hpp>
 #include <client/runtime/event.hpp>
 #include <client/runtime/event_queue.hpp>
 #include <cmath>
+#include <config/user_config.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -29,7 +29,9 @@
 
 namespace ts::client {
 
-    ActionProcessor::ActionProcessor( EventQueue& eventQueue, UserConfigStore& userConfigStore, audio::AudioEngine& audio ):
+    ActionProcessor::ActionProcessor( EventQueue& eventQueue,
+                                      config::UserConfigStore& userConfigStore,
+                                      audio::AudioEngine& audio ):
         m_EventQueue( eventQueue ), m_UserConfigStore( userConfigStore ), m_Audio( audio ) {
     }
 
@@ -165,47 +167,49 @@ namespace ts::client {
             return;
         }
 
-        UserConfig config = m_UserConfigStore.Load( client->uniqueId );
+        config::UserConfig settings = m_UserConfigStore.Load( client->uniqueId );
 
         switch ( action.kind ) {
             case cli::UserCommandKind::Inspect:
                 break;
 
             case cli::UserCommandKind::VolumeDb:
-                config.volumeDb = action.numberValue;
+                settings.volumeDb = action.numberValue;
                 break;
 
             case cli::UserCommandKind::VolumePercent:
                 if ( action.numberValue <= 0.0F ) {
-                    config.volumeDb = UserConfigStore::MinVolumeDb();
+                    settings.volumeDb = config::UserConfigStore::MinVolumeDb();
                 } else {
-                    config.volumeDb = 20.0F * std::log10( action.numberValue / 100.0F );
-                    config.volumeDb =
-                        std::clamp( config.volumeDb, UserConfigStore::MinVolumeDb(), UserConfigStore::MaxVolumeDb() );
+                    settings.volumeDb = 20.0F * std::log10( action.numberValue / 100.0F );
+                    settings.volumeDb = std::clamp( settings.volumeDb,
+                                                    config::UserConfigStore::MinVolumeDb(),
+                                                    config::UserConfigStore::MaxVolumeDb() );
                 }
                 break;
 
             case cli::UserCommandKind::VolumeReset:
-                config.volumeDb = 0.0F;
+                settings.volumeDb = 0.0F;
                 break;
 
             case cli::UserCommandKind::Mute:
-                config.muted = true;
+                settings.muted = true;
                 break;
 
             case cli::UserCommandKind::Unmute:
-                config.muted = false;
+                settings.muted = false;
                 break;
         }
 
         if ( action.kind != cli::UserCommandKind::Inspect ) {
-            m_UserConfigStore.Save( client->uniqueId, config );
-            m_Audio.SetTalkerSettings( clientId, audio::TalkerSettings { .volumeDb = config.volumeDb, .muted = config.muted } );
+            m_UserConfigStore.Save( client->uniqueId, settings );
+            m_Audio.SetTalkerSettings( clientId,
+                                       audio::TalkerSettings { .volumeDb = settings.volumeDb, .muted = settings.muted } );
         }
 
         std::ostringstream line;
-        line << client->nickname << " [" << client->id << "]: volume=" << config.volumeDb
-             << " dB, muted=" << ( config.muted ? "yes" : "no" ) << ", uid=" << client->uniqueId;
+        line << client->nickname << " [" << client->id << "]: volume=" << settings.volumeDb
+             << " dB, muted=" << ( settings.muted ? "yes" : "no" ) << ", uid=" << client->uniqueId;
         PushInfo( line.str() );
     }
 

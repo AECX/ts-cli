@@ -10,12 +10,9 @@ namespace ts::client::test {
     void RunChannelTreeViewTests();
     void RunCommandHandlerTests();
     void RunCommandParserTests();
-    void RunConfigTests();
     void RunEventQueueTests();
     void RunPresentationTests();
-    void RunSetupTests();
     void RunTargetResolverTests();
-    void RunUserConfigTests();
 
     struct TestGroup {
         std::string_view name;
@@ -25,17 +22,14 @@ namespace ts::client::test {
 } // namespace ts::client::test
 
 int main() {
-    constexpr std::array<ts::client::test::TestGroup, 10> TestGroups = {
+    constexpr std::array<ts::client::test::TestGroup, 7> TestGroups = {
         ts::client::test::TestGroup { .name = "ActionQueue", .run = ts::client::test::RunActionQueueTests },
         ts::client::test::TestGroup { .name = "ChannelTreeView", .run = ts::client::test::RunChannelTreeViewTests },
         ts::client::test::TestGroup { .name = "CommandHandler", .run = ts::client::test::RunCommandHandlerTests },
         ts::client::test::TestGroup { .name = "CommandParser", .run = ts::client::test::RunCommandParserTests },
-        ts::client::test::TestGroup { .name = "Config", .run = ts::client::test::RunConfigTests },
         ts::client::test::TestGroup { .name = "EventQueue", .run = ts::client::test::RunEventQueueTests },
         ts::client::test::TestGroup { .name = "Presentation", .run = ts::client::test::RunPresentationTests },
-        ts::client::test::TestGroup { .name = "Setup", .run = ts::client::test::RunSetupTests },
-        ts::client::test::TestGroup { .name = "TargetResolver", .run = ts::client::test::RunTargetResolverTests },
-        ts::client::test::TestGroup { .name = "UserConfig", .run = ts::client::test::RunUserConfigTests } };
+        ts::client::test::TestGroup { .name = "TargetResolver", .run = ts::client::test::RunTargetResolverTests } };
 
     std::size_t failed = 0;
 

@@ -1,12 +1,12 @@
 #include <algorithm>
 #include <audio/audio_types.hpp>
-#include <client/config/user_config.hpp>
 #include <client/runtime/action.hpp>
 #include <client/runtime/action_processor.hpp>
 #include <client/runtime/action_queue.hpp>
 #include <client/runtime/event.hpp>
 #include <client/runtime/event_queue.hpp>
 #include <client/runtime/network_runtime.hpp>
+#include <config/user_config.hpp>
 #include <exception>
 #include <map>
 #include <optional>
@@ -31,7 +31,7 @@ namespace ts::client {
                                     ActionQueue& actionQueue,
                                     EventQueue& eventQueue,
                                     audio::AudioEngine& audio,
-                                    UserConfigStore& userConfigStore ):
+                                    config::UserConfigStore& userConfigStore ):
         m_Connection( connection ), m_ActionQueue( actionQueue ), m_EventQueue( eventQueue ), m_Audio( audio ),
         m_UserConfigStore( userConfigStore ), m_ActionProcessor( eventQueue, userConfigStore, audio ) {
         m_CurrentChannelId = m_Connection.CurrentChannelId();
@@ -185,9 +185,9 @@ namespace ts::client {
             }
 
             try {
-                const UserConfig config = m_UserConfigStore.Load( client->uniqueId );
+                const config::UserConfig settings = m_UserConfigStore.Load( client->uniqueId );
                 m_Audio.SetTalkerSettings( client->id,
-                                           audio::TalkerSettings { .volumeDb = config.volumeDb, .muted = config.muted } );
+                                           audio::TalkerSettings { .volumeDb = settings.volumeDb, .muted = settings.muted } );
             } catch ( const std::exception& exception ) {
                 m_Audio.SetTalkerSettings( client->id, audio::TalkerSettings {} );
                 m_EventQueue.Push(

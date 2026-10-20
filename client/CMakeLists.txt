@@ -4,11 +4,6 @@ add_library(ts-client-support STATIC
     src/cli/command_parser.cpp
     src/cli/presentation.cpp
     src/cli/target_resolver.cpp
-    src/config/config.cpp
-    src/config/identity_store.cpp
-    src/config/user_config.cpp
-    src/config/paths.cpp
-    src/config/setup.cpp
     src/runtime/action_processor.cpp
     src/runtime/action_queue.cpp
     src/runtime/event_queue.cpp
@@ -36,21 +31,20 @@ target_compile_options(ts-client-support
 
 target_link_libraries(ts-client-support
     PUBLIC
+        ts-config
         ts-protocol
         ts-audio
         ts-log
 )
 
 # Everything above this point is target-agnostic: it only sees the
-# ts::client::platform::console_io/secure_file/paths/terminal_control
+# ts::client::platform::console_io/terminal_control
 # interfaces. This is the only place that picks a concrete implementation
 # for the build target.
 if(WIN32)
     target_sources(ts-client-support
         PRIVATE
             src/platform/win32/win32_console_io.cpp
-            src/platform/win32/win32_secure_file.cpp
-            src/platform/win32/win32_paths.cpp
             src/platform/win32/win32_terminal_control.cpp
     )
 
@@ -66,8 +60,6 @@ else()
     target_sources(ts-client-support
         PRIVATE
             src/platform/posix/posix_console_io.cpp
-            src/platform/posix/posix_secure_file.cpp
-            src/platform/posix/posix_paths.cpp
             src/platform/posix/posix_terminal_control.cpp
     )
 endif()

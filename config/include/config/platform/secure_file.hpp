@@ -1,5 +1,5 @@
-#ifndef TS_CLIENT_PLATFORM_SECURE_FILE_HPP
-#define TS_CLIENT_PLATFORM_SECURE_FILE_HPP
+#ifndef TS_CONFIG_PLATFORM_SECURE_FILE_HPP
+#define TS_CONFIG_PLATFORM_SECURE_FILE_HPP
 
 #include <cstdint>
 #include <filesystem>
@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace ts::client::platform {
+namespace ts::config::platform {
 
     /*
      * Reads a private, regular file capped at maxSize bytes, returning
@@ -35,6 +35,6 @@ namespace ts::client::platform {
      */
     void SecureDirectory( const std::filesystem::path& path );
 
-} // namespace ts::client::platform
+} // namespace ts::config::platform
 
-#endif // TS_CLIENT_PLATFORM_SECURE_FILE_HPP
+#endif // TS_CONFIG_PLATFORM_SECURE_FILE_HPP

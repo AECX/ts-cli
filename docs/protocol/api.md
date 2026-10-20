@@ -159,7 +159,7 @@ identity, so store the two together — `ts-cli` keeps both in one file, see
 `platform` and a matching Base64 `signature`. The server verifies the signature during the
 handshake and refuses mismatched combinations, so these four fields travel as a set — you
 cannot change the platform string and keep the old signature. `ts-cli`'s known-good defaults
-are in `Config::DefaultProfile()` (`client/src/config/config.cpp`).
+are in `Config::DefaultProfile()` (`config/src/config.cpp`).
 
 `Connect()` runs the handshake, logs in, and blocks until the server has delivered the initial
 channel and client lists. When it returns, the session is `Established` and everything below

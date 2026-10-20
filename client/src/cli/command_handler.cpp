@@ -31,7 +31,7 @@ namespace ts::client::cli {
         if ( const auto* nicknameChanged = std::get_if<CurrentNicknameChangedEvent>( &event ); nicknameChanged != nullptr ) {
             if ( m_PersistConfig ) {
                 try {
-                    m_PersistConfig( [nickname = nicknameChanged->nickname]( Config& config ) {
+                    m_PersistConfig( [nickname = nicknameChanged->nickname]( config::Config& config ) {
                         config.SetNickname( nickname );
                     } );
                     m_Notify( ts::audio::NotificationType::Success );
@@ -58,7 +58,7 @@ namespace ts::client::cli {
 
     void CommandHandler::PersistAudioSettings() {
         if ( m_PersistConfig ) {
-            m_PersistConfig( [settings = m_Audio->Settings()]( Config& config ) {
+            m_PersistConfig( [settings = m_Audio->Settings()]( config::Config& config ) {
                 config.SetAudioSettings( settings );
             } );
         }

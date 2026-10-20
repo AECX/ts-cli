@@ -1,14 +1,14 @@
 #include "test_support.hpp"
 
-#include <client/config/config.hpp>
-#include <client/config/identity_store.hpp>
-#include <client/config/paths.hpp>
-#include <client/config/setup.hpp>
+#include <config/config.hpp>
+#include <config/identity_store.hpp>
+#include <config/paths.hpp>
+#include <config/setup.hpp>
 #include <filesystem>
 #include <sstream>
 #include <string>
 
-namespace ts::client::test {
+namespace ts::config::test {
 
     void RunSetupTests() {
         const std::filesystem::path root =
@@ -46,7 +46,6 @@ namespace ts::client::test {
 
             const Config reloaded = Config::Load( paths.ConfigFile() );
             ExpectEqual( reloaded.Profile().nickname, profile.nickname, "Reloaded setup nickname changed" );
-            Expect( !reloaded.HasLegacyIdentity(), "Fresh setup wrote legacy identity fields to config" );
             Expect( IdentityStore::Load( paths.IdentityFile() ).identity.PublicKey() == publicKey,
                     "Reloaded setup identity changed" );
 
@@ -61,6 +60,7 @@ namespace ts::client::test {
                          "Setup recovery did not recreate client config" );
             Expect( IdentityStore::Load( paths.IdentityFile() ).identity.PublicKey() == publicKey,
                     "Setup recovery replaced an existing local identity" );
+
         } catch ( ... ) {
             std::filesystem::remove_all( root );
             throw;
@@ -69,4 +69,4 @@ namespace ts::client::test {
         std::filesystem::remove_all( root );
     }
 
-} // namespace ts::client::test
+} // namespace ts::config::test

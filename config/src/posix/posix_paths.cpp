@@ -1,10 +1,10 @@
-#include <client/platform/paths.hpp>
+#include <config/platform/paths.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
 
-namespace ts::client::platform {
+namespace ts::config::platform {
 
     namespace {
 
@@ -40,4 +40,4 @@ namespace ts::client::platform {
         return *home / ".config";
     }
 
-} // namespace ts::client::platform
+} // namespace ts::config::platform

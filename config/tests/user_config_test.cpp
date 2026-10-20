@@ -1,6 +1,6 @@
 #include "test_support.hpp"
 
-#include <client/config/user_config.hpp>
+#include <config/user_config.hpp>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #endif
 
-namespace ts::client::test {
+namespace ts::config::test {
 
     void RunUserConfigTests() {
         const std::filesystem::path root =
@@ -40,7 +40,7 @@ namespace ts::client::test {
                     "Remote identity was not encoded as a safe filename" );
 
 #ifndef _WIN32
-            /* Raw POSIX mode bits aren't meaningful on Windows; see client/platform/secure_file.hpp. */
+            /* Raw POSIX mode bits aren't meaningful on Windows; see config/platform/secure_file.hpp. */
             struct stat information {};
             Expect( ::stat( path.c_str(), &information ) == 0, "Could not stat remote user config" );
             Expect( ( information.st_mode & 0777 ) == 0600, "Remote user config permissions are not 0600" );
@@ -81,4 +81,4 @@ namespace ts::client::test {
         std::filesystem::remove_all( root );
     }
 
-} // namespace ts::client::test
+} // namespace ts::config::test
