@@ -141,7 +141,9 @@ namespace ts::client::cli {
                                      << ", threshold=" << status.activationThresholdDb << " dBFS"
                                      << ", transmit=" << ( status.transmitEnabled ? "on" : "off" )
                                      << ", drops(capture/encoded/receive)=" << status.captureDrops << '/' << status.encodedDrops
-                                     << '/' << status.receiveDrops;
+                                     << '/' << status.receiveDrops << ", underruns=" << status.playbackUnderruns
+                                     << ", input clock=" << audio::FormatDeviceClock( status.inputClock )
+                                     << ", output clock=" << audio::FormatDeviceClock( status.outputClock );
                                 if ( !status.error.empty() ) {
                                     line << ", error=" << status.error;
                                 }

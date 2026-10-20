@@ -197,6 +197,10 @@ namespace ts::audio {
         }
         status.activationThresholdDb = ActivationThresholdDb();
         status.error = m_Error;
+        if ( m_Available && m_Backend ) {
+            status.inputClock = m_Backend->InputClock();
+            status.outputClock = m_Backend->OutputClock();
+        }
         return status;
     }
 
@@ -275,14 +279,24 @@ namespace ts::audio {
     }
 
     void AudioEngine::RenderPlayback( std::span<float> output ) {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+        const auto previous = m_LastPlaybackRequest.exchange( now, std::memory_order_acq_rel );
+        /* Coming back from idle the queue is empty by design, so that request is no underrun. */
+        const bool wasActive = previous != 0 && std::chrono::steady_clock::duration( now - previous ) <
+                                                    std::chrono::steady_clock::duration( PlaybackIdleTimeout );
+
+        m_PlaybackRequestSamples.store( output.size(), std::memory_order_relaxed );
+
         std::size_t written = 0;
 
         while ( written < output.size() ) {
             if ( m_PlaybackOffset >= SamplesPerFrame ) {
                 if ( !m_PlaybackQueue.TryPop( m_PlaybackCurrent ) ) {
                     std::fill( output.begin() + static_cast<std::ptrdiff_t>( written ), output.end(), 0.0F );
-                    m_PlaybackUnderruns.fetch_add( 1, std::memory_order_relaxed );
-                    return;
+                    if ( wasActive ) {
+                        m_PlaybackUnderruns.fetch_add( 1, std::memory_order_relaxed );
+                    }
+                    break;
                 }
 
                 m_PlaybackOffset = 0;
@@ -296,6 +310,18 @@ namespace ts::audio {
             written += count;
             m_PlaybackOffset += count;
         }
+
+        WakeWorker();
+    }
+
+    std::size_t AudioEngine::PlaybackBufferFrames( std::size_t requestSamples ) {
+        const std::size_t requestFrames = ( requestSamples + SamplesPerFrame - 1 ) / SamplesPerFrame;
+        return std::clamp<std::size_t>( requestFrames + 1, 2, PlaybackQueueCapacity - 1 );
+    }
+
+    bool AudioEngine::PlaybackDeviceActive( std::chrono::steady_clock::time_point now ) const {
+        const auto last = m_LastPlaybackRequest.load( std::memory_order_acquire );
+        return last != 0 && now.time_since_epoch() - std::chrono::steady_clock::duration( last ) < PlaybackIdleTimeout;
     }
 
     void AudioEngine::Worker( std::stop_token stopToken ) {
@@ -328,15 +354,30 @@ namespace ts::audio {
 
                 const auto now = std::chrono::steady_clock::now();
 
-                std::size_t catchUpFrames = 0;
-                while ( now >= nextMix && catchUpFrames < 3 ) {
-                    MixPlayback();
-                    nextMix += 20ms;
-                    ++catchUpFrames;
-                }
-
-                if ( now >= nextMix + 100ms ) {
+                if ( PlaybackDeviceActive( now ) ) {
+                    /*
+                     * The output device's clock paces the mix: refill what its
+                     * requests consumed. A timer would drift against the device
+                     * and leave gaps whenever a request outruns the queue.
+                     */
+                    const std::size_t target =
+                        PlaybackBufferFrames( m_PlaybackRequestSamples.load( std::memory_order_relaxed ) );
+                    while ( m_PlaybackQueue.Size() < target ) {
+                        MixPlayback( true );
+                    }
                     nextMix = now + 20ms;
+                } else {
+                    /* No device is pulling: keep talkers' timelines moving, but nobody hears the result. */
+                    std::size_t catchUpFrames = 0;
+                    while ( now >= nextMix && catchUpFrames < 3 ) {
+                        MixPlayback( false );
+                        nextMix += 20ms;
+                        ++catchUpFrames;
+                    }
+
+                    if ( now >= nextMix + 100ms ) {
+                        nextMix = now + 20ms;
+                    }
                 }
 
                 const std::uint64_t currentSignal = m_WorkSignal.load( std::memory_order_acquire );
@@ -525,7 +566,7 @@ namespace ts::audio {
         }
     }
 
-    void AudioEngine::MixPlayback() {
+    void AudioEngine::MixPlayback( bool deliver ) {
         PcmFrame mixed;
         std::size_t contributors = 0;
 
@@ -643,14 +684,17 @@ namespace ts::audio {
 
         const bool notification = m_NotificationSynthesizer.Mix( mixed );
 
-        if ( contributors == 0 && !notification ) {
+        if ( !deliver ) {
             return;
         }
 
-        for ( float& sample : mixed.samples ) {
-            sample = std::clamp( sample, -1.0F, 1.0F );
+        if ( contributors != 0 || notification ) {
+            for ( float& sample : mixed.samples ) {
+                sample = std::clamp( sample, -1.0F, 1.0F );
+            }
         }
 
+        /* Silence is queued too, so the device always finds the buffer it was promised. */
         (void)m_PlaybackQueue.TryPush( mixed );
     }
 

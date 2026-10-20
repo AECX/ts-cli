@@ -3,6 +3,7 @@ option(TS_AUDIO_STUB_DEPS "Build audio with stub backend/codec (tests and depend
 add_library(ts-audio STATIC
     src/audio_engine.cpp
     src/capture_filter.cpp
+    src/device_clock.cpp
     src/voice_jitter_buffer.cpp
     src/notification_synthesizer.cpp
 )

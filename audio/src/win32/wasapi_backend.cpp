@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <audio/audio_backend.hpp>
 #include <audio/audio_types.hpp>
 #include <charconv>
@@ -220,6 +221,45 @@ namespace ts::audio {
             return format;
         }
 
+        /*
+         * The shared-mode engine's clock for a client: the device's mix format
+         * rate (WASAPI resamples our 48 kHz to it) and its default period.
+         */
+        [[nodiscard]] DeviceClock QueryDeviceClock( IAudioClient& client ) {
+            DeviceClock clock;
+
+            WAVEFORMATEX* mixFormat = nullptr;
+            if ( SUCCEEDED( client.GetMixFormat( &mixFormat ) ) && mixFormat != nullptr ) {
+                clock.rate = mixFormat->nSamplesPerSec;
+                ::CoTaskMemFree( mixFormat );
+            }
+
+            REFERENCE_TIME defaultPeriod = 0;
+            if ( SUCCEEDED( client.GetDevicePeriod( &defaultPeriod, nullptr ) ) && defaultPeriod > 0 ) {
+                clock.period =
+                    static_cast<std::uint32_t>( static_cast<std::uint64_t>( defaultPeriod ) * clock.rate / 10'000'000 );
+            }
+
+            return clock;
+        }
+
+        class AtomicDeviceClock {
+          public:
+            void Store( DeviceClock clock ) {
+                m_Rate.store( clock.rate, std::memory_order_relaxed );
+                m_Period.store( clock.period, std::memory_order_relaxed );
+            }
+
+            [[nodiscard]] DeviceClock Load() const {
+                return DeviceClock { .rate = m_Rate.load( std::memory_order_relaxed ),
+                                     .period = m_Period.load( std::memory_order_relaxed ) };
+            }
+
+          private:
+            std::atomic<std::uint32_t> m_Rate { 0 };
+            std::atomic<std::uint32_t> m_Period { 0 };
+        };
+
         class WasapiBackend final: public AudioBackend {
           public:
             WasapiBackend() = default;
@@ -296,6 +336,14 @@ namespace ts::audio {
 
             void SetOutputDevice( std::string_view selector ) override {
                 SetDevice( DeviceKind::Output, selector );
+            }
+
+            DeviceClock InputClock() const override {
+                return m_CaptureClock.Load();
+            }
+
+            DeviceClock OutputClock() const override {
+                return m_RenderClock.Load();
             }
 
           private:
@@ -517,6 +565,7 @@ namespace ts::audio {
 
                 ThrowIfFailed( client->Start(), "Failed to start capture audio client" );
 
+                m_CaptureClock.Store( QueryDeviceClock( *client.pointer ) );
                 m_CaptureAudioClient = client.Release();
                 m_CaptureClient = captureClient.Release();
             }
@@ -556,9 +605,21 @@ namespace ts::audio {
 
                 ThrowIfFailed( client->Start(), "Failed to start render audio client" );
 
+                /*
+                 * Keep about two device periods queued rather than the whole
+                 * buffer: the engine answers each request from its own small
+                 * queue, so filling 200 ms ahead would only add latency.
+                 */
+                REFERENCE_TIME period = 0;
+                ThrowIfFailed( client->GetDevicePeriod( &period, nullptr ), "Failed to get render device period" );
+                const auto periodFrames = static_cast<UINT32>( static_cast<std::uint64_t>( period ) * SampleRate / 10'000'000 );
+                const UINT32 targetFrames =
+                    std::min( bufferFrames, std::max( 2 * periodFrames, static_cast<UINT32>( SamplesPerFrame ) ) );
+
+                m_RenderClock.Store( QueryDeviceClock( *client.pointer ) );
                 m_RenderAudioClient = client.Release();
                 m_RenderClient = renderClient.Release();
-                m_RenderBufferFrames = bufferFrames;
+                m_RenderTargetFrames = targetFrames;
             }
 
             void DestroyCaptureClientOnCaptureThread() {
@@ -575,6 +636,8 @@ namespace ts::audio {
                     m_CaptureAudioClient->Release();
                     m_CaptureAudioClient = nullptr;
                 }
+
+                m_CaptureClock.Store( {} );
             }
 
             void DestroyRenderClientOnRenderThread() {
@@ -592,7 +655,8 @@ namespace ts::audio {
                     m_RenderAudioClient = nullptr;
                 }
 
-                m_RenderBufferFrames = 0;
+                m_RenderTargetFrames = 0;
+                m_RenderClock.Store( {} );
             }
 
             void DrainCaptureOnCaptureThread() {
@@ -641,7 +705,7 @@ namespace ts::audio {
                     return;
                 }
 
-                const UINT32 framesAvailable = m_RenderBufferFrames > padding ? m_RenderBufferFrames - padding : 0;
+                const UINT32 framesAvailable = m_RenderTargetFrames > padding ? m_RenderTargetFrames - padding : 0;
                 if ( framesAvailable == 0 ) {
                     return;
                 }
@@ -818,7 +882,10 @@ namespace ts::audio {
 
             IAudioClient* m_RenderAudioClient = nullptr;
             IAudioRenderClient* m_RenderClient = nullptr;
-            UINT32 m_RenderBufferFrames = 0;
+            UINT32 m_RenderTargetFrames = 0;
+
+            AtomicDeviceClock m_CaptureClock;
+            AtomicDeviceClock m_RenderClock;
         };
 
     } // namespace

@@ -11,6 +11,7 @@
 #include <audio/notification_synthesizer.hpp>
 #include <audio/spsc_ring.hpp>
 #include <audio/voice_jitter_buffer.hpp>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -79,6 +80,13 @@ namespace ts::audio {
         void SetTalkerSettings( std::uint16_t clientId, const TalkerSettings& settings );
         void RemoveTalker( std::uint16_t clientId );
 
+        /*
+         * Mixed frames kept queued for an output device that requests
+         * requestSamples at a time: enough to answer one request, plus one
+         * frame of slack for the worker to refill before the next.
+         */
+        [[nodiscard]] static std::size_t PlaybackBufferFrames( std::size_t requestSamples );
+
       private:
         struct TalkerState {
             std::unique_ptr<Decoder> decoder;
@@ -104,7 +112,8 @@ namespace ts::audio {
         void PlayLoopback( const EncodedFrame& frame );
         [[nodiscard]] TransmitStateChange LoadTransmitState() const;
         void ProcessIncoming();
-        void MixPlayback();
+        void MixPlayback( bool deliver );
+        [[nodiscard]] bool PlaybackDeviceActive( std::chrono::steady_clock::time_point now ) const;
         void WakeWorker();
         void NotifyNetwork() const;
         void RequireAvailable() const;
@@ -115,6 +124,9 @@ namespace ts::audio {
         static constexpr std::size_t PlaybackQueueCapacity = 32;
         static constexpr std::size_t TalkStartPackets = 5;
         static constexpr std::uint8_t NoNotificationRequested = 0xFF;
+
+        /* Longer than any device period; without requests for this long, the worker paces mixing itself. */
+        static constexpr std::chrono::milliseconds PlaybackIdleTimeout { 250 };
 
         /* Real TeamSpeak client IDs are never 0, so the loopback talker can't collide with one. */
         static constexpr std::uint16_t LoopbackTalkerId = 0;
@@ -133,6 +145,8 @@ namespace ts::audio {
 
         PcmFrame m_PlaybackCurrent;
         std::size_t m_PlaybackOffset = SamplesPerFrame;
+        std::atomic<std::size_t> m_PlaybackRequestSamples { SamplesPerFrame };
+        std::atomic<std::chrono::steady_clock::rep> m_LastPlaybackRequest { 0 };
 
         std::map<std::uint16_t, TalkerState> m_Talkers;
         std::map<std::uint16_t, TalkerMixSettings> m_TalkerMixSettings;

@@ -81,6 +81,8 @@ namespace ts::client::gtk {
         Gtk::Label m_VoiceIndicator;
         Gtk::Label m_ThresholdLabel { "Activation threshold" };
         Gtk::Scale m_Threshold { Gtk::Orientation::HORIZONTAL };
+        Gtk::Label m_ClockLabel { "Device clock" };
+        Gtk::Label m_Clock;
         Gtk::ToggleButton m_Test { "Test microphone" };
         Gtk::Label m_Notice;
         Gtk::Label m_Error;

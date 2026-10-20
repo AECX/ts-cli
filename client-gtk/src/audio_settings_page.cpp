@@ -42,7 +42,8 @@ namespace ts::client::gtk {
     AudioSettingsPage::AudioSettingsPage( audio::AudioEngine& audio, ChangedHandler onChanged ):
         Gtk::Box( Gtk::Orientation::VERTICAL, 10 ), m_Audio( audio ), m_OnChanged( std::move( onChanged ) ) {
 
-        for ( Gtk::Label* label : { &m_InputLabel, &m_OutputLabel, &m_NoiseLabel, &m_LevelLabel, &m_ThresholdLabel } ) {
+        for ( Gtk::Label* label :
+              { &m_InputLabel, &m_OutputLabel, &m_NoiseLabel, &m_LevelLabel, &m_ThresholdLabel, &m_ClockLabel } ) {
             label->set_xalign( 0.0F );
         }
 
@@ -81,6 +82,13 @@ namespace ts::client::gtk {
         m_Grid.attach( m_LevelBox, 1, 3 );
         m_Grid.attach( m_ThresholdLabel, 0, 4 );
         m_Grid.attach( m_Threshold, 1, 4 );
+        m_Grid.attach( m_ClockLabel, 0, 5 );
+        m_Grid.attach( m_Clock, 1, 5 );
+
+        m_Clock.set_xalign( 0.0F );
+        m_Clock.set_wrap( true );
+        m_Clock.set_tooltip_text( "Sample rate and period the devices run at. Voice is 48000 Hz; other rates are "
+                                  "resampled by the audio system." );
 
         m_Test.set_tooltip_text( "Play back exactly what would be transmitted: after noise suppression, "
                                  "voice activation and Opus encoding" );
@@ -228,6 +236,15 @@ namespace ts::client::gtk {
         m_Level.set_value( std::clamp( fraction, 0.0, 1.0 ) );
         m_VoiceIndicator.set_markup( level.voiceActive ? "<span foreground=\"#2ec27e\">● voice</span>"
                                                        : "<span alpha=\"50%\">○ silent</span>" );
+
+        /* The backend only learns the device clock once a stream has run, and it changes with the device. */
+        const audio::AudioStatus status = m_Audio.Status();
+        const Glib::ustring clock = "<small>Microphone: " + DisplayMarkup( audio::FormatDeviceClock( status.inputClock ) ) +
+                                    "\nPlayback: " + DisplayMarkup( audio::FormatDeviceClock( status.outputClock ) ) +
+                                    "</small>";
+        if ( m_Clock.get_label() != clock ) {
+            m_Clock.set_markup( clock );
+        }
         return true;
     }
 

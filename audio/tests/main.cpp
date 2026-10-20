@@ -18,6 +18,23 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    if ( ring.Size() != 1 || !ring.TryPush( 3 ) || !ring.TryPush( 4 ) || ring.Size() != 3 || ring.TryPush( 5 ) ) {
+        std::cerr << "SPSC ring size test failed\n";
+        return EXIT_FAILURE;
+    }
+
+    {
+        using ts::audio::AudioEngine;
+
+        /* 20 ms frames: a 960-sample request needs one frame plus slack; a resampled 44.1 kHz period needs two. */
+        if ( AudioEngine::PlaybackBufferFrames( 0 ) != 2 || AudioEngine::PlaybackBufferFrames( 256 ) != 2 ||
+             AudioEngine::PlaybackBufferFrames( 960 ) != 2 || AudioEngine::PlaybackBufferFrames( 1115 ) != 3 ||
+             AudioEngine::PlaybackBufferFrames( 4096 ) != 6 || AudioEngine::PlaybackBufferFrames( 1'000'000 ) != 31 ) {
+            std::cerr << "Playback buffer sizing test failed\n";
+            return EXIT_FAILURE;
+        }
+    }
+
     const auto filters = ts::audio::AvailableCaptureFilters();
     if ( filters.empty() || filters.front() != "none" ) {
         std::cerr << "Audio capture-filter availability test failed\n";
