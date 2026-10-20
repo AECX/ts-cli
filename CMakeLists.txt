@@ -4,18 +4,6 @@ project(ts-cli
     LANGUAGES CXX
 )
 
-if(MINGW)
-    # The whole build links statically for MinGW targets (see
-    # cmake/toolchains/mingw-w64.cmake), so prefer static archives (.a)
-    # over dynamic import libraries (.dll.a) wherever find_library() runs
-    # (including pkg_check_modules(IMPORTED_TARGET ...), which resolves
-    # each -lfoo this way) -- otherwise the .exe silently ends up depending
-    # on DLLs (e.g. libsodium-*.dll) at runtime instead. Must be set here,
-    # after project(): CMake's Windows-GNU platform module resets this
-    # while processing project(), clobbering any value a toolchain file set.
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".dll.a")
-endif()
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -33,6 +21,23 @@ pkg_check_modules(
 )
 
 include(CTest)
+
+# Windows has no system package manager for these libraries, so each
+# executable is shipped as a folder with the DLLs it imports, taken from
+# this MSYS2 UCRT64 prefix (the build environment itself for windows-msys;
+# set by cmake/toolchains/mingw-w64.cmake for windows-cross). Linux builds
+# link the distribution's shared libraries and need nothing of the sort.
+if(WIN32)
+    set(TS_WINDOWS_RUNTIME_PREFIX "" CACHE PATH "MSYS2 UCRT64 prefix providing the Windows libraries")
+
+    if(NOT TS_WINDOWS_RUNTIME_PREFIX)
+        message(FATAL_ERROR
+            "Windows builds need -DTS_WINDOWS_RUNTIME_PREFIX=<MSYS2 ucrt64 prefix>; "
+            "`make windows-cross` and `make windows-msys` set it (see BUILDING.md)")
+    endif()
+
+    include(cmake/bundle_windows_target.cmake)
+endif()
 
 add_subdirectory(log)
 add_subdirectory(net)

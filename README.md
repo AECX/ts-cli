@@ -132,7 +132,7 @@ Once dependencies are installed, a single `Makefile` drives all three targets â€
 make linux
 ```
 
-The resulting binary is `build/linux/client/ts-cli`.
+The resulting binary is `build/linux/client/ts-cli`. Windows builds produce a self-contained folder (`build/windows-cross/dist/ts-cli/`), with the DLLs next to the executable; see [BUILDING.md](BUILDING.md).
 
 ---
 

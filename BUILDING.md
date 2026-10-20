@@ -15,7 +15,7 @@ For usage, commands, and configuration, see [README.md](README.md). For code sty
 | Target | Method | Status |
 | --- | --- | --- |
 | **Linux** (native) | direct build via CMake | Fully supported — networking, protocol, CLI, and PipeWire/Opus voice |
-| **Windows** (x86_64) | cross-compiled from Linux via MinGW-w64, tested under Wine | Supported — networking, protocol, CLI, and WASAPI/Opus voice are all ported and verified on real Windows hardware; requires the `mingw-w64-opus` AUR package to build with voice enabled (see [Current limitations](#current-limitations)) |
+| **Windows** (x86_64) | cross-compiled from Linux via MinGW-w64, tested under Wine | Supported — networking, protocol, CLI, and WASAPI/Opus voice are all ported and verified on real Windows hardware; Windows libraries come prebuilt from MSYS2 and the build produces a self-contained folder |
 | **Windows** (x86_64) | built natively on Windows via [MSYS2](https://www.msys2.org/)'s UCRT64 environment | Same code, same status as the row above — see [Windows (native, via MSYS2)](#windows-native-via-msys2) |
 
 Both targets share the same source tree. `net`, `log`, `audio`, `config/platform` and `client/platform` each expose a platform-agnostic public interface with a POSIX and a Win32 backend selected in `CMakeLists.txt` — see [Platform backends](CONTRIBUTING.md#platform-backends) in `CONTRIBUTING.md` if you're implementing or extending one.
@@ -74,10 +74,12 @@ ctest --test-dir build/linux --output-on-failure
 
 ## Windows (cross-compiled via MinGW-w64)
 
-`ts-cli` does not need to be built on Windows itself. The Windows target is produced by cross-compiling from Linux with MinGW-w64, links statically (no runtime DLL dependencies), and its test suite runs transparently through Wine via CMake's `CMAKE_CROSSCOMPILING_EMULATOR`.
+`ts-cli` does not need to be built on Windows itself. The Windows target is produced by cross-compiling from Linux with MinGW-w64, and its test suite runs transparently through Wine via CMake's `CMAKE_CROSSCOMPILING_EMULATOR`.
+
+Like the Linux build, it links its libraries dynamically. Windows has no package manager that would provide OpenSSL, libsodium or Opus, so each program is shipped the usual Windows way: as a folder with the DLLs it uses next to it (see [Output](#output)).
 
 > [!NOTE]
-> This toolchain is set up and verified on **Arch Linux**. Other distributions will need an equivalent `x86_64-w64-mingw32` GCC toolchain plus statically-built libsodium and OpenSSL for that target — if your distribution doesn't package those, you'll need to build them from source yourself.
+> This toolchain is set up and verified on **Arch Linux**. Other distributions need an equivalent `x86_64-w64-mingw32` GCC toolchain targeting the UCRT runtime; the libraries come from MSYS2 either way.
 
 ### Requirements
 
@@ -87,15 +89,7 @@ From the official Arch repositories:
 sudo pacman -S mingw-w64-gcc mingw-w64-binutils mingw-w64-crt mingw-w64-headers mingw-w64-winpthreads
 ```
 
-From the AUR (via your preferred helper, e.g. `yay` or `paru`):
-
-```bash
-yay -S mingw-w64-libsodium mingw-w64-openssl-3 mingw-w64-opus
-```
-
-`mingw-w64-opus` is required for voice; without it, `pkg_check_modules(OPUS REQUIRED ...)` fails at configure time with a clear error. If you just want to build and test everything except voice, configure with `-DTS_AUDIO_STUB_DEPS=ON` instead of installing it (see [Current limitations](#current-limitations)). RNNoise capture filtering is optional on Windows exactly as it is on Linux — install a `mingw-w64-rnnoise`-equivalent package if one is available for your setup; the build degrades gracefully (`/audio filter rnnoise` just stays unavailable) if it isn't.
-
-And Wine, to run and test the cross-compiled binary:
+And Wine, to run and test the cross-compiled binaries:
 
 ```bash
 sudo pacman -S wine
@@ -103,6 +97,8 @@ sudo pacman -S wine
 
 > [!TIP]
 > Wine lives in the `multilib` repository on Arch — enable it in `/etc/pacman.conf` first if `wine` isn't found.
+
+Plus Python 3.14 or newer (for its built-in zstd support) and network access on the first build. The libraries themselves (OpenSSL, libsodium, Opus and RNNoise) aren't cross-built or taken from the AUR. [`cmake/msys2/fetch_packages.py`](cmake/msys2/fetch_packages.py) downloads MSYS2's prebuilt UCRT64 packages, built with the same GCC and C runtime as `mingw-w64-gcc`, together with their runtime dependencies. It verifies each against the SHA-256 in MSYS2's repository database and unpacks them into `build/deps/msys2-ucrt64/`. Later builds reuse that copy.
 
 ### Build
 
@@ -113,23 +109,26 @@ make windows-cross
 Or drive it manually:
 
 ```bash
+python3 -I cmake/msys2/fetch_packages.py build/deps/msys2-ucrt64 openssl libsodium opus rnnoise
 cmake -S . -B build/windows-cross -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64.cmake
 cmake --build build/windows-cross
 ctest --test-dir build/windows-cross --output-on-failure
 ```
 
-The resulting binary is:
+### Output
+
+Every build assembles a self-contained folder under `build/windows-cross/dist/`:
 
 ```text
-build/windows-cross/client/ts-cli.exe
+dist/ts-cli/ts-cli.exe          plus the DLLs it imports (OpenSSL, libsodium, Opus, RNNoise, C++ runtime), about 18 MB
 ```
 
-It is statically linked, so it runs as-is under Wine or on a bare Windows machine — no MinGW runtime DLLs required.
+The folder is relocatable and runs as-is on a bare 64-bit Windows machine; zip it to distribute (`make release` does). [`cmake/bundle_windows.cmake`](cmake/bundle_windows.cmake) assembles them by walking each executable's DLL imports, so it contains exactly what the program needs. The executable in `build/windows-cross/client/` itself only run with the MSYS2 DLLs on the search path; `ctest` arranges that through `WINEPATH`.
 
 ### Running it under Wine
 
 ```bash
-wine build/windows-cross/client/ts-cli.exe voice.example.net:9987
+wine build/windows-cross/dist/ts-cli/ts-cli.exe voice.example.net:9987
 ```
 
 Console coloring and cursor control on Windows use the native Console API rather than ANSI escape sequences, so this renders correctly both under Wine and on real Windows consoles.
@@ -138,17 +137,17 @@ Console coloring and cursor control on Windows use the native Console API rather
 
 Audio on Windows uses a real WASAPI backend (shared-mode, event-driven capture and render, device enumeration and switching) — see `audio/src/win32/wasapi_backend.cpp`. A few things to know:
 
-* it requires `mingw-w64-opus` to build at all (see [Requirements](#requirements-1) above); without it, build with `-DTS_AUDIO_STUB_DEPS=ON` to get everything except voice;
+* RNNoise noise suppression is available on Windows too (`/audio filter rnnoise`);
 * exclusive mode and live device hot-plug notifications aren't implemented — device changes while the client is running need `/audio input`/`/audio output` to pick up the new device, rather than switching automatically;
 * this backend has been exercised on real Windows hardware — capture and playback behave as they do on PipeWire — as well as under Wine (device enumeration, capture/render start/stop, device switching, and error rejection for an invalid device). If you do hit a glitch or a device that won't enumerate correctly, `audio/src/win32/wasapi_backend.cpp` is the place to look, and `audio/include/audio/audio_backend.hpp` is the interface it implements.
 
 ### Toolchain internals
 
-The toolchain file at [`cmake/toolchains/mingw-w64.cmake`](cmake/toolchains/mingw-w64.cmake) is heavily commented and documents the non-obvious parts directly:
+The toolchain file at [`cmake/toolchains/mingw-w64.cmake`](cmake/toolchains/mingw-w64.cmake) documents the non-obvious parts directly:
 
-* why static linking is used (`-static -static-libgcc -static-libstdc++`) and why `find_library()` must be told to prefer `.a` over `.dll.a`, or the binary silently ends up dynamically linked against DLLs instead;
-* why that library-suffix preference is actually applied in the root `CMakeLists.txt` rather than the toolchain file (CMake's Windows-GNU platform module resets it during `project()`);
-* the AUR `mingw-w64-openssl-3` package's non-standard header/library layout and how `OPENSSL_INCLUDE_DIR`/`LIB_EAY`/`SSL_EAY` are pre-seeded to work around it.
+* how the fetched MSYS2 prefix becomes the pkg-config sysroot (MSYS2's `.pc` files say `prefix=/ucrt64`), and why both it and the toolchain's own sysroot are find roots (the latter provides the Win32 import libraries such as `gdi32`);
+* how `try_compile()` projects get the same prefix (`CMAKE_TRY_COMPILE_PLATFORM_VARIABLES`);
+* how `ctest` finds the DLLs under Wine (`WINEPATH` in the emulator command).
 
 Read that file if you're debugging a Windows build issue or porting the toolchain to another distribution.
 
@@ -177,10 +176,11 @@ Read that file if you're debugging a Windows build issue or porting the toolchai
      mingw-w64-ucrt-x86_64-openssl \
      mingw-w64-ucrt-x86_64-libsodium \
      mingw-w64-ucrt-x86_64-opus \
+     mingw-w64-ucrt-x86_64-rnnoise \
      make
    ```
 
-   `mingw-w64-ucrt-x86_64-clang-tools-extra` provides `clang-format` (used by `make format`, which every Makefile target runs first — see *Build* below). The plain `make` package (not `mingw-w64-ucrt-x86_64-make`, which installs as `mingw32-make` instead) gives you the literal `make` command needed to drive the Makefile. RNNoise is optional, same as on Linux: add `mingw-w64-ucrt-x86_64-rnnoise` if it's available in your MSYS2 repos, or skip it and the build degrades gracefully (`/audio filter rnnoise` just stays unavailable).
+   `mingw-w64-ucrt-x86_64-clang-tools-extra` provides `clang-format` (used by `make format`, which every Makefile target runs first — see *Build* below). The plain `make` package (not `mingw-w64-ucrt-x86_64-make`, which installs as `mingw32-make` instead) gives you the literal `make` command needed to drive the Makefile. RNNoise is optional, same as on Linux: leave out `mingw-w64-ucrt-x86_64-rnnoise` and the build degrades gracefully (`/audio filter rnnoise` just stays unavailable).
 
    If `pacman -Syu` asks you to close and reopen the shell partway through, do so and rerun it — that's normal MSYS2 behavior (a core-package self-update), not specific to this project.
 
@@ -200,32 +200,26 @@ Or drive it manually:
 env -u CMAKE_TOOLCHAIN_FILE -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR -u PKG_CONFIG_PATH \
   cmake -S . -B build/windows-msys -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DOPENSSL_ROOT_DIR="$(cygpath -m "$MINGW_PREFIX")" \
-  -DOPENSSL_USE_STATIC_LIBS=TRUE
+  -DTS_WINDOWS_RUNTIME_PREFIX="$(cygpath -m "$MINGW_PREFIX")"
 cmake --build build/windows-msys
 ctest --test-dir build/windows-msys --output-on-failure
 ```
 
-The `env -u ...` prefix keeps a stray `CMAKE_TOOLCHAIN_FILE`/`PKG_CONFIG_*` setting left over from a Linux cross-build shell from leaking into this native build. `-DOPENSSL_ROOT_DIR`/`-DOPENSSL_USE_STATIC_LIBS` point CMake at UCRT64's static OpenSSL explicitly, since this build has no toolchain file of its own to pre-seed those paths the way [`cmake/toolchains/mingw-w64.cmake`](cmake/toolchains/mingw-w64.cmake) does for the cross-compiled build (see *Toolchain internals* above).
+The `env -u ...` prefix keeps a stray `CMAKE_TOOLCHAIN_FILE`/`PKG_CONFIG_*` setting left over from a Linux cross-build shell from leaking into this native build. `TS_WINDOWS_RUNTIME_PREFIX` names the environment's own UCRT64 prefix, which the build copies the program's DLLs from.
 
-The resulting binary is:
-
-```text
-build/windows-msys/client/ts-cli.exe
-```
-
-identical in behavior to `build/windows-cross/client/ts-cli.exe` from the cross-compiled build — `WIN32`/`MINGW` are set by CMake based on the compiler's target, not by which machine is doing the compiling, so it's the same WASAPI backend, the same networking/protocol/CLI code, no path-specific branching anywhere. Note one real difference, though: unlike the cross-compiled build, this configuration does not pass `-static`/`-static-libgcc`/`-static-libstdc++`, so beyond OpenSSL (statically linked via `-DOPENSSL_USE_STATIC_LIBS=TRUE` above) the resulting `.exe` runs fine from within the MSYS2 UCRT64 shell (`ucrt64/bin` is already on `PATH` there) but may depend on that environment's runtime DLLs if you copy it out to a bare Windows machine. Add the same `-DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++"` the cross-compiled build uses to the manual command above if you need a fully portable binary.
+The resulting folder is `build/windows-msys/dist/ts-cli/`, laid out exactly like the [cross-compiled output](#output) and identical in behavior: `WIN32`/`MINGW` are set by CMake based on the compiler's target, not by which machine is doing the compiling, so it's the same WASAPI backend and the same networking/protocol/CLI code, with no path-specific branching anywhere.
 
 > [!NOTE]
-> This path hasn't been exercised by the person who wrote it — the reference environment for this project cross-compiles from Linux under Wine, not a native Windows/MSYS2 box. If you hit an MSYS2-specific packaging quirk (a misplaced `.pc` file, a static-vs-import-library mismatch), it'll likely resemble the AUR `openssl-3` quirk documented under *Toolchain internals* above, and the same kind of fix (pointing CMake straight at the real paths) should apply. Please report back what you find.
+> This path hasn't been exercised by the person who wrote it — the reference environment for this project cross-compiles from Linux under Wine, not a native Windows/MSYS2 box. If you hit an MSYS2-specific packaging quirk (a misplaced `.pc` file, a static-vs-import-library mismatch), pointing CMake straight at the real paths is the likely fix. Please report back what you find.
 
 ---
 
 ## Troubleshooting
 
-* **`ts-client-tests.exe` link errors mentioning `libsodium` or `libcrypto`** — the AUR packages weren't found, or `CMAKE_FIND_LIBRARY_SUFFIXES` picked a `.dll.a` import library instead of the static archive. Re-check the requirements above and see *Toolchain internals*.
+* **`No Windows libraries at .../build/deps/msys2-ucrt64/ucrt64` at configure time** — the MSYS2 packages haven't been fetched. Run `make windows-cross`, or the `fetch_packages.py` command shown under *Build*.
+* **A test or `.exe` under `build/windows-cross/client/` fails to start with a missing DLL** — run the copy in `build/windows-cross/dist/` instead, or put `build/deps/msys2-ucrt64/ucrt64/bin` on `WINEPATH`.
 * **`windns.h` / `VOID` / `ULONG` compile errors on Windows sources** — `windows.h` must be included before `windns.h`. This is already handled in-tree with `clang-format off` guards around the affected includes; if you hit this in new code, do the same.
-* **`wine: command not found` while running `make windows-cross`** — Wine wasn't found, so cross-compiled tests can't run automatically; the configure step will warn but still produce `build/windows-cross/client/ts-cli.exe`, which you can copy to a real Windows machine instead.
+* **`wine: command not found` while running `make windows-cross`** — Wine wasn't found, so cross-compiled tests can't run automatically; the configure step will warn but still produce `build/windows-cross/dist/ts-cli/`, which you can copy to a real Windows machine instead.
 
 ---
 

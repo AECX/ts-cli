@@ -47,15 +47,6 @@ if(WIN32)
             src/platform/win32/win32_console_io.cpp
             src/platform/win32/win32_terminal_control.cpp
     )
-
-    # Statically link winpthreads (the mingw-w64-gcc "posix" thread model
-    # backing std::thread/condition_variable) so the win32 console backend's
-    # reader thread doesn't need a runtime DLL alongside the .exe.
-    target_link_libraries(ts-client-support
-        PRIVATE
-            -static
-            winpthread
-    )
 else()
     target_sources(ts-client-support
         PRIVATE
@@ -88,6 +79,10 @@ target_link_libraries(ts-cli
         ts-protocol
         ts-log
 )
+
+if(WIN32)
+    ts_bundle_windows(ts-cli)
+endif()
 
 if(BUILD_TESTING)
     add_subdirectory(tests)

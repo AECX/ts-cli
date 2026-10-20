@@ -22,7 +22,13 @@ linux: format
 	cmake --build build/linux -j$(NPROC)
 	ctest --test-dir build/linux --output-on-failure
 
+# Windows libraries (OpenSSL, libsodium, Opus, RNNoise) come prebuilt from
+# MSYS2's UCRT64 repository (same CRT and GCC as the cross toolchain);
+# fetched once, checksum-verified, into build/deps/.
+WINDOWS_PACKAGES := openssl libsodium opus rnnoise
+
 windows-cross: format
+	python3 -I cmake/msys2/fetch_packages.py build/deps/msys2-ucrt64 $(WINDOWS_PACKAGES)
 	cmake -S . -B build/windows-cross -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64.cmake
 	cmake --build build/windows-cross -j$(NPROC)
 	ctest --test-dir build/windows-cross --output-on-failure
@@ -49,8 +55,7 @@ windows-msys: format
 	env -u CMAKE_TOOLCHAIN_FILE -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR -u PKG_CONFIG_PATH \
 		cmake -S . -B build/windows-msys -G Ninja \
 		-DCMAKE_BUILD_TYPE=Release \
-		-DOPENSSL_ROOT_DIR="$$(cygpath -m "$$MINGW_PREFIX")" \
-		-DOPENSSL_USE_STATIC_LIBS=TRUE
+		-DTS_WINDOWS_RUNTIME_PREFIX="$$(cygpath -m "$$MINGW_PREFIX")"
 	cmake --build build/windows-msys
 	ctest --test-dir build/windows-msys --output-on-failure
 
@@ -105,10 +110,11 @@ release: release-precheck linux windows-cross
 	branch="$$(git branch --show-current)"; \
 	mkdir -p $(RELEASE_DIR); \
 	cp build/linux/client/ts-cli "$(RELEASE_DIR)/ts-cli-v$$new_version-linux-x86_64"; \
-	cp build/windows-cross/client/ts-cli.exe "$(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.exe"; \
+	rm -f "$(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.zip"; \
+	bsdtar -a -cf "$(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.zip" -C build/windows-cross/dist ts-cli; \
 	echo; \
 	echo "Release artifacts:"; \
-	ls -l "$(RELEASE_DIR)/ts-cli-v$$new_version-linux-x86_64" "$(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.exe"; \
+	ls -l "$(RELEASE_DIR)/ts-cli-v$$new_version-linux-x86_64" "$(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.zip"; \
 	echo; \
 	echo "About to, on branch '$$branch':"; \
 	echo "  1. write $$new_version to $(VERSION_FILE) and commit it"; \
@@ -150,4 +156,4 @@ release: release-precheck linux windows-cross
 	echo; \
 	echo "Tag v$$new_version pushed to origin. Create the release on GitHub from that tag and attach:"; \
 	echo "  $(RELEASE_DIR)/ts-cli-v$$new_version-linux-x86_64"; \
-	echo "  $(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.exe"
+	echo "  $(RELEASE_DIR)/ts-cli-v$$new_version-windows-x86_64.zip"

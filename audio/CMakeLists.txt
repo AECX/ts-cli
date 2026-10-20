@@ -47,13 +47,9 @@ else()
     if(WIN32)
         target_sources(ts-audio PRIVATE src/win32/wasapi_backend.cpp)
 
-        # Statically link winpthreads (MinGW's std::thread/std::promise
-        # backing the backend's control/capture/render threads) plus the
-        # COM/WASAPI import libraries the backend links against directly.
+        # The COM/WASAPI import libraries the backend links against directly.
         target_link_libraries(ts-audio
             PRIVATE
-                -static
-                winpthread
                 ole32
                 oleaut32
                 uuid
