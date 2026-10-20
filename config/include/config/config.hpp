@@ -33,6 +33,10 @@ namespace ts::config {
         void SetAudioSettings( const audio::AudioSettings& settings );
         void SetNickname( std::string nickname );
 
+        /* The server the GTK client connected to last; empty if none. */
+        [[nodiscard]] const std::string& LastServer() const;
+        void SetLastServer( std::string server );
+
       private:
         [[nodiscard]] static Config Parse( std::string_view data );
         [[nodiscard]] static std::uint64_t ParseUnsigned( std::string_view value, std::string_view name );
@@ -45,6 +49,7 @@ namespace ts::config {
         std::string m_ClientPlatform;
         std::string m_ClientVersionSignature;
         audio::AudioSettings m_AudioSettings;
+        std::string m_LastServer;
 
         std::optional<std::filesystem::path> m_Path;
     };

@@ -1,4 +1,6 @@
+#include <atomic>
 #include <audio/audio_engine.hpp>
+#include <charconv>
 #include <chrono>
 #include <client/cli/channel_tree_view.hpp>
 #include <client/cli/command_handler.hpp>
@@ -24,8 +26,11 @@
 #include <log/ostream_sink.hpp>
 #include <protocol/protocol.hpp>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -47,6 +52,99 @@ namespace {
         }
     }
 
+    [[nodiscard]] std::uint8_t ParseSecurityLevel( std::string_view value ) {
+        std::uint32_t level = 0;
+        const auto [end, error] = std::from_chars( value.data(), value.data() + value.size(), level );
+
+        if ( error != std::errc {} || end != value.data() + value.size() ||
+             level > ts::config::IdentityStore::MaxSecurityLevel() ) {
+            throw std::runtime_error( "Security level must be a number from 0 to " +
+                                      std::to_string( ts::config::IdentityStore::MaxSecurityLevel() ) );
+        }
+
+        return static_cast<std::uint8_t>( level );
+    }
+
+    /*
+     * ts-cli --security-level <level>: raises the local identity's security
+     * level and exits. The search runs on a worker thread so Ctrl+C can stop
+     * it; the identity file is only rewritten once it finished.
+     */
+    int IncreaseSecurityLevel( std::string_view levelArgument, ts::log::Logger& logger ) {
+        const std::uint8_t targetLevel = ParseSecurityLevel( levelArgument );
+        const ts::config::Paths paths = ts::config::Paths::Discover();
+        const std::filesystem::path identityPath = paths.IdentityFile();
+
+        if ( !std::filesystem::exists( identityPath ) ) {
+            throw std::runtime_error( "No identity yet at " + identityPath.string() + "; connect once to create one" );
+        }
+
+        ts::config::LocalIdentity identity = ts::config::IdentityStore::Load( identityPath );
+        const std::uint8_t currentLevel = identity.securityLevel;
+
+        if ( targetLevel <= currentLevel ) {
+            throw std::runtime_error( "The identity already has security level " + std::to_string( currentLevel ) );
+        }
+
+        logger.Info( "identity",
+                     "raising security level " + std::to_string( currentLevel ) + " to " + std::to_string( targetLevel ) +
+                         "; this can take a while, Ctrl+C stops" );
+
+        InstallSignalHandlers();
+
+        std::atomic<std::uint64_t> progress = identity.keyOffset;
+        std::atomic<bool> done = false;
+        std::exception_ptr failure;
+        bool finished = false;
+
+        std::jthread search( [&]( const std::stop_token& stop ) {
+            try {
+                finished = ts::config::IdentityStore::IncreaseSecurityLevel( identity,
+                                                                             targetLevel,
+                                                                             stop,
+                                                                             [&progress]( std::uint64_t offset ) {
+                                                                                 progress = offset;
+                                                                             } );
+            } catch ( ... ) {
+                failure = std::current_exception();
+            }
+
+            done = true;
+        } );
+
+        auto reported = std::chrono::steady_clock::now();
+
+        while ( !done ) {
+            std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+
+            if ( StopRequested != 0 ) {
+                search.request_stop();
+            }
+
+            if ( const auto now = std::chrono::steady_clock::now(); now - reported >= std::chrono::seconds( 10 ) ) {
+                reported = now;
+                logger.Info( "identity", "still searching, at key offset " + std::to_string( progress.load() ) );
+            }
+        }
+
+        search.join();
+
+        if ( failure ) {
+            std::rethrow_exception( failure );
+        }
+
+        if ( !finished ) {
+            logger.Info( "identity", "stopped; the identity is unchanged" );
+            return 1;
+        }
+
+        ts::config::IdentityStore::Save( identityPath, identity );
+        logger.Info( "identity",
+                     "security level is now " + std::to_string( identity.securityLevel ) + " (key offset " +
+                         std::to_string( identity.keyOffset ) + ")" );
+        return 0;
+    }
+
     std::string CurrentChannelName( const ts::protocol::Connection& connection ) {
         const std::uint64_t channelId = connection.CurrentChannelId();
 
@@ -63,13 +161,25 @@ namespace {
 int main( int argc, char* argv[] ) {
     ts::client::platform::InitializeConsole();
 
-    if ( argc != 2 ) {
+    const bool securityLevelMode = argc == 3 && std::string_view( argv[1] ) == "--security-level";
+
+    if ( argc != 2 && !securityLevelMode ) {
         std::cerr << "Usage: ts-cli <endpoint>" << std::endl;
+        std::cerr << "       ts-cli --security-level <level>" << std::endl;
         return 1;
     }
 
     ts::log::OstreamSink sink( std::cerr, ts::client::platform::StandardErrorIsTerminal() );
     ts::log::Logger logger( sink, ts::log::Level::Trace );
+
+    if ( securityLevelMode ) {
+        try {
+            return IncreaseSecurityLevel( argv[2], logger );
+        } catch ( const std::exception& exception ) {
+            logger.Error( "identity", exception.what() );
+            return 1;
+        }
+    }
 
     logger.Info( "client", "starting ts-cli" );
 

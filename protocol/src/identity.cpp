@@ -1,3 +1,4 @@
+#include <array>
 #include <cstddef>
 #include <limits>
 #include <memory>
@@ -7,6 +8,7 @@
 #include <openssl/core_names.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#include <protocol/encoding/base64.hpp>
 #include <protocol/identity.hpp>
 #include <span>
 #include <stdexcept>
@@ -320,6 +322,25 @@ namespace ts::protocol {
 
     std::vector<std::byte> Identity::PublicKey() const {
         return m_Impl->PublicKey();
+    }
+
+    std::string Identity::UniqueId() const {
+        const std::string encodedPublicKey = Base64Encode( PublicKey() );
+        std::array<std::byte, 20> hash {};
+        std::size_t hashSize = hash.size();
+
+        if ( EVP_Q_digest( nullptr,
+                           "SHA1",
+                           nullptr,
+                           encodedPublicKey.data(),
+                           encodedPublicKey.size(),
+                           reinterpret_cast<unsigned char*>( hash.data() ),
+                           &hashSize ) != 1 ||
+             hashSize != hash.size() ) {
+            throw std::runtime_error( "Failed to hash identity public key" );
+        }
+
+        return Base64Encode( hash );
     }
 
     std::vector<std::byte> Identity::Sign( std::span<const std::byte> data ) const {

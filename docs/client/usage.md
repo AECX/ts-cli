@@ -388,3 +388,5 @@ Examples:
 /help
 /quit
 ```
+
+Outside a session, `ts-cli --security-level <level>` raises the security level of your identity and exits; see [Raising the security level](configuration.md#raising-the-security-level).

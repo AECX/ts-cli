@@ -73,8 +73,11 @@ namespace ts::config {
             (void)IdentityStore::Load( identityPath );
             output << "Using existing TeamSpeak identity:" << std::endl << "  " << identityPath << std::endl;
         } else {
-            const std::uint8_t securityLevel = static_cast<std::uint8_t>(
-                PromptUnsigned( input, output, "Identity security level", IdentityStore::DefaultSecurityLevel(), 32 ) );
+            const std::uint8_t securityLevel = static_cast<std::uint8_t>( PromptUnsigned( input,
+                                                                                          output,
+                                                                                          "Identity security level",
+                                                                                          IdentityStore::DefaultSecurityLevel(),
+                                                                                          IdentityStore::MaxSecurityLevel() ) );
 
             output << std::endl;
 
@@ -225,29 +228,11 @@ namespace ts::config {
             }
 
             try {
-                return LoadPemIdentity( path );
+                return IdentityStore::ImportPem( path );
             } catch ( const std::exception& exception ) {
                 output << "Could not import identity: " << exception.what() << std::endl;
             }
         }
-    }
-
-    protocol::Identity ConfigSetup::LoadPemIdentity( const std::filesystem::path& path ) {
-        std::ifstream stream( path, std::ios::binary );
-
-        if ( !stream ) {
-            throw std::runtime_error( "Failed to open PEM file: " + path.string() );
-        }
-
-        std::ostringstream data;
-
-        data << stream.rdbuf();
-
-        if ( stream.bad() ) {
-            throw std::runtime_error( "Failed to read PEM file: " + path.string() );
-        }
-
-        return protocol::Identity::FromPrivateKeyPem( data.str() );
     }
 
     std::uint64_t ConfigSetup::ParseUnsigned( std::string_view value ) {

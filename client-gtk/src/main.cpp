@@ -1,12 +1,9 @@
 #include <audio/audio_engine.hpp>
 #include <client/gtk/main_window.hpp>
 #include <client/gtk/platform/shutdown_signal.hpp>
-#include <client/runtime/action_queue.hpp>
-#include <client/runtime/event_queue.hpp>
-#include <client/runtime/network_runtime.hpp>
+#include <client/gtk/session.hpp>
 #include <config/audio_settings.hpp>
 #include <config/config.hpp>
-#include <config/identity_store.hpp>
 #include <config/paths.hpp>
 #include <config/setup.hpp>
 #include <config/user_config.hpp>
@@ -21,27 +18,20 @@
 #include <log/ostream_sink.hpp>
 #include <memory>
 #include <optional>
-#include <protocol/protocol.hpp>
 #include <string>
 #include <string_view>
-#include <utility>
 
 namespace {
 
-    /* Everything one connected session owns, created once the application is activated. */
-    struct Session {
-        Session( const char* endpoint, ts::log::Logger& logger );
+    /* Everything that outlives a single connection, created once the application is activated. */
+    struct Application {
+        explicit Application( ts::log::Logger& logger );
 
         ts::config::Paths paths;
         ts::config::Config config;
-        ts::protocol::Connection connection;
-        ts::client::ActionQueue actionQueue;
-        ts::client::EventQueue eventQueue;
+        ts::client::gtk::NetworkWake wake;
         ts::audio::AudioEngine audio;
         ts::config::UserConfigStore userConfigStore;
-
-        /* Both need an established connection. */
-        std::optional<ts::client::NetworkRuntime> runtime;
         std::optional<ts::client::gtk::MainWindow> window;
     };
 
@@ -62,43 +52,23 @@ namespace {
         return ts::config::ConfigSetup::CreateDefault( configPath, paths.IdentityFile() );
     }
 
-    [[nodiscard]] ts::protocol::ConnectionOptions
-        ConnectionOptionsFor( const char* endpoint, const ts::config::Config& config, const ts::config::Paths& paths ) {
-        ts::config::LocalIdentity localIdentity = ts::config::IdentityStore::Load( paths.IdentityFile() );
-        return ts::protocol::ConnectionOptions { .endpoint = endpoint,
-                                                 .profile = config.Profile(),
-                                                 .identity = std::move( localIdentity.identity ),
-                                                 .identityKeyOffset = localIdentity.keyOffset };
-    }
-
-    Session::Session( const char* endpoint, ts::log::Logger& logger ):
-        paths( DiscoverPaths() ), config( LoadConfig( paths, logger ) ),
-        connection( ConnectionOptionsFor( endpoint, config, paths ) ), audio( [this] {
-            connection.Wake();
+    Application::Application( ts::log::Logger& logger ):
+        paths( DiscoverPaths() ), config( LoadConfig( paths, logger ) ), audio( [this] {
+            wake.Wake();
         } ),
         userConfigStore( paths.UsersDirectory() ) {
-        logger.Info( "connection", std::string( "connecting to " ) + endpoint );
-        connection.Connect();
-        logger.Info( "connection", "connected as client " + std::to_string( connection.ClientId() ) );
-
         ts::config::ApplyAudioSettings( audio, config.AudioSettings(), [&logger]( std::string_view message ) {
             logger.Warning( "audio", std::string( message ) );
         } );
 
-        runtime.emplace( connection, actionQueue, eventQueue, audio, userConfigStore );
-        window.emplace( actionQueue, eventQueue, audio, userConfigStore, [this]( const ts::config::ConfigMutator& mutator ) {
-            config.Update( mutator );
-        } );
-
-        runtime->EnableLiveStateEvents();
-        runtime->Start();
+        window.emplace( audio, config, paths, userConfigStore, wake );
     }
 
 } // namespace
 
 int main( int argc, char* argv[] ) {
-    if ( argc != 2 ) {
-        std::cerr << "Usage: ts-gtk <endpoint>" << std::endl;
+    if ( argc > 2 ) {
+        std::cerr << "Usage: ts-gtk [endpoint]" << std::endl;
         return 1;
     }
 
@@ -111,21 +81,22 @@ int main( int argc, char* argv[] ) {
      */
     Glib::set_init_to_users_preferred_locale( false );
 
-    const char* endpoint = argv[1];
+    const std::optional<std::string> endpoint = argc == 2 ? std::optional<std::string>( argv[1] ) : std::nullopt;
     const Glib::RefPtr<Gtk::Application> application = Gtk::Application::create( "", Gio::Application::Flags::NON_UNIQUE );
-    std::unique_ptr<Session> session;
+    std::unique_ptr<Application> app;
     int exitCode = 0;
 
     /*
      * gtkmm 4 widgets can only be created once the application is
      * activated, and must be gone before run() returns. The application is
-     * held until the session has disconnected, or the error dialog closed.
+     * held until the window has closed and disconnected, or the error
+     * dialog closed.
      */
     application->signal_activate().connect( [&] {
         application->hold();
 
         try {
-            session = std::make_unique<Session>( endpoint, logger );
+            app = std::make_unique<Application>( logger );
         } catch ( const std::exception& exception ) {
             logger.Error( "client", exception.what() );
             exitCode = 1;
@@ -144,32 +115,33 @@ int main( int argc, char* argv[] ) {
             return;
         }
 
-        ts::client::gtk::MainWindow& window = *session->window;
+        ts::client::gtk::MainWindow& window = *app->window;
 
-        ts::client::gtk::platform::InstallShutdownHandler( [&session] {
-            if ( session ) {
-                session->window->close();
+        ts::client::gtk::platform::InstallShutdownHandler( [&app] {
+            if ( app ) {
+                app->window->close();
             }
         } );
 
         window.signal_hide().connect( [&] {
             /* Deferred: the window must not be destroyed from inside its own hide handler. */
             Glib::signal_idle().connect_once( [&] {
-                if ( !session ) {
+                if ( !app ) {
                     return;
                 }
 
-                logger.Info( "connection", "disconnecting" );
-                session->runtime->RequestStop();
-                session->runtime->Join();
-                logger.Info( "connection", "disconnected" );
-                session.reset();
+                app->window->Shutdown();
+                app.reset();
                 application->release();
             } );
         } );
 
         application->add_window( window );
         window.present();
+
+        if ( endpoint ) {
+            window.Connect( *endpoint );
+        }
     } );
 
     /* The endpoint was consumed above, so GTK only sees the program name. */

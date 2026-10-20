@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <limits>
 #include <openssl/evp.h>
+#include <optional>
 #include <protocol/crypto/hash_cash.hpp>
 #include <protocol/encoding/base64.hpp>
+#include <span>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <string_view>
 
@@ -13,16 +16,32 @@ namespace ts::protocol {
 
     class HashCashImpl {
       public:
-        [[nodiscard]] static std::uint64_t FindOffset( std::span<const std::byte> publicKey, std::uint8_t targetLevel ) {
+        static constexpr std::uint64_t ProgressInterval = 1U << 16U;
+
+        [[nodiscard]] static std::optional<std::uint64_t> FindOffset( std::span<const std::byte> publicKey,
+                                                                      std::uint8_t targetLevel,
+                                                                      std::uint64_t start,
+                                                                      const std::stop_token& stop,
+                                                                      const HashCash::ProgressCallback& progress ) {
             const std::string encodedPublicKey = Base64Encode( publicKey );
 
-            for ( std::uint64_t offset = 0;; ++offset ) {
+            for ( std::uint64_t offset = start;; ++offset ) {
                 if ( GetLevel( encodedPublicKey, offset ) >= targetLevel ) {
                     return offset;
                 }
 
                 if ( offset == std::numeric_limits<std::uint64_t>::max() ) {
                     break;
+                }
+
+                if ( ( offset - start + 1 ) % ProgressInterval == 0 ) {
+                    if ( stop.stop_requested() ) {
+                        return std::nullopt;
+                    }
+
+                    if ( progress ) {
+                        progress( offset + 1 );
+                    }
                 }
             }
 
@@ -91,7 +110,19 @@ namespace ts::protocol {
     };
 
     std::uint64_t HashCash::FindOffset( std::span<const std::byte> publicKey, std::uint8_t targetLevel ) {
-        return HashCashImpl::FindOffset( publicKey, targetLevel );
+        return *HashCashImpl::FindOffset( publicKey, targetLevel, 0, {}, {} );
+    }
+
+    std::optional<std::uint64_t> HashCash::FindOffset( std::span<const std::byte> publicKey,
+                                                       std::uint8_t targetLevel,
+                                                       std::uint64_t start,
+                                                       const std::stop_token& stop,
+                                                       const ProgressCallback& progress ) {
+        return HashCashImpl::FindOffset( publicKey, targetLevel, start, stop, progress );
+    }
+
+    std::uint64_t HashCash::ProgressInterval() {
+        return HashCashImpl::ProgressInterval;
     }
 
     bool HashCash::ValidateOffset( std::span<const std::byte> publicKey, std::uint8_t targetLevel, std::uint64_t offset ) {

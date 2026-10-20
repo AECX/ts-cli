@@ -1,10 +1,11 @@
 #ifndef TS_CLIENT_GTK_MAIN_WINDOW_HPP
 #define TS_CLIENT_GTK_MAIN_WINDOW_HPP
 
-#include "audio_settings_window.hpp"
 #include "channel_tree.hpp"
 #include "conversation_log.hpp"
 #include "feed_view.hpp"
+#include "options_window.hpp"
+#include "session.hpp"
 #include "user_audio_popover.hpp"
 
 #include <audio/audio_engine.hpp>
@@ -14,8 +15,8 @@
 #include <client/runtime/event_queue.hpp>
 #include <client/runtime/server_snapshot.hpp>
 #include <config/config.hpp>
+#include <config/paths.hpp>
 #include <config/user_config.hpp>
-#include <functional>
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
 #include <gtkmm/entry.h>
@@ -25,6 +26,7 @@
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/togglebutton.h>
 #include <gtkmm/window.h>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,23 +34,27 @@
 namespace ts::client::gtk {
 
     /*
-     * Top to bottom: audio controls, the live channel/client tree, the feed
-     * of the selected conversation and the input line. Runs entirely on the
-     * GTK thread and talks to the network thread only through the
-     * action/event queues. The input line only sends chat; everything else
-     * is done through the UI.
+     * Top to bottom: audio controls and the server to connect to, the live
+     * channel/client tree, the feed of the selected conversation and the
+     * input line. Runs entirely on the GTK thread and talks to the current
+     * session's network thread only through its action/event queues. The
+     * input line only sends chat; everything else is done through the UI.
      */
     class MainWindow: public Gtk::Window {
       public:
-        using PersistConfigCallback = std::function<void( const config::ConfigMutator& )>;
-
-        MainWindow( ActionQueue& actionQueue,
-                    EventQueue& eventQueue,
-                    audio::AudioEngine& audio,
-                    const config::UserConfigStore& userConfigs,
-                    PersistConfigCallback persistConfig );
+        MainWindow( audio::AudioEngine& audio,
+                    config::Config& config,
+                    const config::Paths& paths,
+                    config::UserConfigStore& userConfigs,
+                    NetworkWake& wake );
 
         ~MainWindow() override;
+
+        /* Starts connecting to `endpoint` unless a session is already running. */
+        void Connect( const std::string& endpoint );
+
+        /* Disconnects and waits for the session to end; call before destroying the window. */
+        void Shutdown();
 
         MainWindow( const MainWindow& ) = delete;
         MainWindow& operator=( const MainWindow& ) = delete;
@@ -69,8 +75,15 @@ namespace ts::client::gtk {
             Gtk::Label label;
         };
 
+        enum class ConnectionState { Disconnected, Connecting, Connected, Disconnecting };
+
         bool Tick();
-        void SessionEnded();
+        void PollSession();
+        void DrainEvents();
+        void SessionStarted();
+        void EndSession();
+        void ConnectClicked();
+        void SetConnectionState( ConnectionState state );
 
         void PrintError( std::string_view message );
         void PrintInfo( std::string_view message );
@@ -90,25 +103,31 @@ namespace ts::client::gtk {
         void PersistAudioSettings();
         void Notify( audio::NotificationType type );
 
-        ActionQueue& m_ActionQueue;
-        EventQueue& m_EventQueue;
         audio::AudioEngine& m_Audio;
-        const config::UserConfigStore& m_UserConfigs;
-        PersistConfigCallback m_PersistConfig;
+        config::Config& m_Config;
+        const config::Paths& m_Paths;
+        config::UserConfigStore& m_UserConfigs;
+        NetworkWake& m_Wake;
+
+        /* Exists only while connecting or connected; started once the connection is established. */
+        std::unique_ptr<Session> m_Session;
+        bool m_SessionStarted = false;
+        ConnectionState m_State = ConnectionState::Disconnected;
+        std::string m_Endpoint;
 
         ServerSnapshot m_Snapshot;
         ConversationLog m_Log;
         bool m_SyncingControls = false;
         bool m_TreeDirty = false;
         bool m_UserSelected = false;
-        bool m_SessionEnded = false;
 
         Gtk::Box m_Layout { Gtk::Orientation::VERTICAL, 6 };
-        Gtk::Box m_AudioBar { Gtk::Orientation::HORIZONTAL, 6 };
+        Gtk::Box m_TopBar { Gtk::Orientation::HORIZONTAL, 6 };
         IconToggle m_Microphone;
         IconToggle m_Speakers;
-        Gtk::Button m_AudioSettingsButton;
-        Gtk::Label m_Status;
+        Gtk::Button m_OptionsButton { "Options" };
+        Gtk::Entry m_Server;
+        Gtk::Button m_ConnectButton;
         Gtk::Paned m_Split { Gtk::Orientation::VERTICAL };
         Gtk::ScrolledWindow m_TreeScroll;
         ChannelTree m_Tree;
@@ -117,7 +136,7 @@ namespace ts::client::gtk {
         Gtk::Label m_ConversationTitle;
         FeedView m_Feed;
         Gtk::Entry m_Input;
-        AudioSettingsWindow m_AudioSettings;
+        OptionsWindow m_Options;
         sigc::connection m_Ticker;
     };
 

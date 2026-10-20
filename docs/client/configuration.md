@@ -48,17 +48,33 @@ audio_input=default
 audio_output=default
 audio_filter=none
 audio_activation_threshold_db=-45
+
+last_server=voice.example.net:9987
 ```
 
 The client-version fields form one TeamSpeak wire profile. Custom values should be changed as a complete known-good tuple rather than mixed independently.
 
 Audio input/output selectors, capture-filter selection, and microphone activation threshold are persisted immediately when their corresponding `/audio` command succeeds. Local microphone transmit/mute state is deliberately session-only and always starts disabled.
 
+`last_server` is written by the [GTK client](gtk.md) after each successful connect and prefills its server address on the next start. It is optional and `ts-cli` ignores it.
+
 ## Local `identity`
 
 The `identity` file is the only persistent local TeamSpeak identity used by this client. There is no identity selector and no local `identities/` directory.
 
 It stores the private TeamSpeak identity together with its security level and validated hashcash/key offset. Treat this file as private identity material.
+
+The [GTK client](gtk.md)'s options can show the identity's unique ID, replace it with a newly generated one or a private key PEM file, and export it as PEM (written owner-only, like `identity` itself). `IdentityStore::ImportPem`/`ExportPem` in `ts-config` implement the PEM side for both clients. The unique ID other clients see is `base64(SHA-1(base64(public key)))` (`protocol::Identity::UniqueId`).
+
+### Raising the security level
+
+Some servers only admit identities of a minimum security level. The level is how many trailing zero bits `SHA-1(base64(public key) + key offset)` has, so raising it means searching for a larger key offset; the key, and with it the unique ID, stays the same. Each level doubles the expected number of offsets to try (about 2^level, roughly two million per second on one core), so level 20 takes about a second and level 30 about ten minutes.
+
+```bash
+ts-cli --security-level 24
+```
+
+This raises the level of the local `identity`, saves it and exits without connecting. Ctrl+C stops the search and leaves the file unchanged. The GTK client offers the same in its [identity options](gtk.md#identity). Both use `IdentityStore::IncreaseSecurityLevel`, which continues from the current key offset (no smaller offset reaches even the current level) and checks a stop token as it goes.
 
 If `config.conf` is missing but a valid `identity` file still exists, first-run configuration preserves that identity rather than silently replacing it.
 
@@ -109,6 +125,6 @@ A nickname is resolved against current live client state and then converted to t
 
 When no `config.conf` exists, `ts-cli` runs an interactive setup that collects the client profile. If there is no `identity` file it also creates/imports the one local TeamSpeak identity and calculates its key offset. If an identity file already exists, setup validates and preserves it.
 
-The [GTK client](gtk.md) reads and writes the same files. Without a terminal to prompt on, its first run writes the default client profile and, if there is no `identity` yet, generates one at the default security level; an existing identity is preserved just like in the interactive setup. Run `ts-cli` once first if you want to import an identity or use a custom profile.
+The [GTK client](gtk.md) reads and writes the same files. Without a terminal to prompt on, its first run writes the default client profile and, if there is no `identity` yet, generates one at the default security level; an existing identity is preserved just like in the interactive setup. The nickname and identity can then be changed in its options; run `ts-cli` once first if you want a custom client profile.
 
 See [Audio and voice](audio.md) for runtime audio behavior and [Runtime model](runtime.md) for ownership/threading.

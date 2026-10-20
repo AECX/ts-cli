@@ -41,6 +41,9 @@ namespace ts::client::gtk {
         /* Rebuilds all rows from the snapshot, keeping the scroll position and the log's active conversation selected. */
         void Update( const ServerSnapshot& snapshot, const ConversationLog& log );
 
+        /* Removes every row, e.g. once disconnected. */
+        void Clear();
+
         /* Highlights the given clients as transmitting; updates rows in place. */
         void SetTalking( std::set<std::uint16_t> clientIds );
 

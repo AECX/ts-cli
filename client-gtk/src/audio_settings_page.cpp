@@ -1,6 +1,6 @@
 #include <algorithm>
 #include <audio/audio_types.hpp>
-#include <client/gtk/audio_settings_window.hpp>
+#include <client/gtk/audio_settings_page.hpp>
 #include <client/gtk/display_text.hpp>
 #include <exception>
 #include <functional>
@@ -29,22 +29,18 @@ namespace ts::client::gtk {
 
     } // namespace
 
-    AudioSettingsWindow::DeviceChoice::DeviceChoice(): descriptions( Gtk::StringList::create() ) {
+    AudioSettingsPage::DeviceChoice::DeviceChoice(): descriptions( Gtk::StringList::create() ) {
         dropDown.set_model( descriptions );
         dropDown.set_hexpand( true );
     }
 
-    std::string AudioSettingsWindow::DeviceChoice::SelectedId() const {
+    std::string AudioSettingsPage::DeviceChoice::SelectedId() const {
         const guint selected = dropDown.get_selected();
         return selected < ids.size() ? ids[selected] : std::string {};
     }
 
-    AudioSettingsWindow::AudioSettingsWindow( audio::AudioEngine& audio, ChangedHandler onChanged ):
-        m_Audio( audio ), m_OnChanged( std::move( onChanged ) ) {
-        set_title( "Audio settings" );
-        set_default_size( 460, -1 );
-        set_resizable( false );
-        set_hide_on_close( true );
+    AudioSettingsPage::AudioSettingsPage( audio::AudioEngine& audio, ChangedHandler onChanged ):
+        Gtk::Box( Gtk::Orientation::VERTICAL, 10 ), m_Audio( audio ), m_OnChanged( std::move( onChanged ) ) {
 
         for ( Gtk::Label* label : { &m_InputLabel, &m_OutputLabel, &m_NoiseLabel, &m_LevelLabel, &m_ThresholdLabel } ) {
             label->set_xalign( 0.0F );
@@ -89,7 +85,7 @@ namespace ts::client::gtk {
         m_Test.set_tooltip_text( "Play back exactly what would be transmitted: after noise suppression, "
                                  "voice activation and Opus encoding" );
 
-        m_Notice.set_markup( "<small><i>Your microphone is muted on the server while this window is open.</i></small>" );
+        m_Notice.set_markup( "<small><i>Your microphone is muted on the server while the options are open.</i></small>" );
         m_Notice.set_xalign( 0.0F );
         m_Notice.set_wrap( true );
 
@@ -97,17 +93,13 @@ namespace ts::client::gtk {
         m_Error.set_wrap( true );
         m_Error.set_visible( false );
 
-        m_Close.set_hexpand( true );
-        m_Close.set_halign( Gtk::Align::END );
-        m_Buttons.append( m_Test );
-        m_Buttons.append( m_Close );
+        m_Test.set_halign( Gtk::Align::START );
 
-        m_Layout.set_margin( 12 );
-        m_Layout.append( m_Grid );
-        m_Layout.append( m_Notice );
-        m_Layout.append( m_Error );
-        m_Layout.append( m_Buttons );
-        set_child( m_Layout );
+        set_margin( 12 );
+        append( m_Grid );
+        append( m_Notice );
+        append( m_Error );
+        append( m_Test );
 
         m_Input.dropDown.property_selected().signal_changed().connect( [this] {
             Apply( "microphone", [this] {
@@ -134,38 +126,31 @@ namespace ts::client::gtk {
                 SetMonitor( m_Test.get_active() ? audio::CaptureMonitor::Loopback : audio::CaptureMonitor::Level );
             }
         } );
-        m_Close.signal_clicked().connect( [this] {
-            set_visible( false );
-        } );
     }
 
-    AudioSettingsWindow::~AudioSettingsWindow() {
+    AudioSettingsPage::~AudioSettingsPage() {
         m_MeterTimer.disconnect();
     }
 
-    void AudioSettingsWindow::on_show() {
+    void AudioSettingsPage::Open() {
         m_Error.set_visible( false );
 
         Populate();
         SetMonitor( audio::CaptureMonitor::Level );
         m_MeterTimer =
-            Glib::signal_timeout().connect( sigc::mem_fun( *this, &AudioSettingsWindow::UpdateMeter ), MeterMilliseconds );
-
-        Gtk::Window::on_show();
+            Glib::signal_timeout().connect( sigc::mem_fun( *this, &AudioSettingsPage::UpdateMeter ), MeterMilliseconds );
     }
 
-    void AudioSettingsWindow::on_hide() {
+    void AudioSettingsPage::Close() {
         m_MeterTimer.disconnect();
 
         m_Populating = true;
         m_Test.set_active( false );
         m_Populating = false;
         SetMonitor( audio::CaptureMonitor::Off );
-
-        Gtk::Window::on_hide();
     }
 
-    void AudioSettingsWindow::Populate() {
+    void AudioSettingsPage::Populate() {
         m_Populating = true;
 
         const audio::AudioStatus status = m_Audio.Status();
@@ -193,7 +178,7 @@ namespace ts::client::gtk {
         m_Populating = false;
     }
 
-    void AudioSettingsWindow::PopulateDevices( DeviceChoice& choice, audio::DeviceKind kind, const std::string& selected ) {
+    void AudioSettingsPage::PopulateDevices( DeviceChoice& choice, audio::DeviceKind kind, const std::string& selected ) {
         std::vector<Glib::ustring> descriptions { "System default" };
         choice.ids = { "default" };
 
@@ -221,7 +206,7 @@ namespace ts::client::gtk {
         choice.dropDown.set_selected( static_cast<guint>( active - choice.ids.begin() ) );
     }
 
-    bool AudioSettingsWindow::UpdateMeter() {
+    bool AudioSettingsPage::UpdateMeter() {
         const audio::InputLevel level = m_Audio.CurrentInputLevel();
         const double fraction = ( static_cast<double>( level.levelDb ) - MinimumDb ) / -MinimumDb;
 
@@ -231,7 +216,7 @@ namespace ts::client::gtk {
         return true;
     }
 
-    void AudioSettingsWindow::Apply( std::string_view what, const std::function<void()>& change ) {
+    void AudioSettingsPage::Apply( std::string_view what, const std::function<void()>& change ) {
         if ( m_Populating ) {
             return;
         }
@@ -248,12 +233,12 @@ namespace ts::client::gtk {
         }
     }
 
-    void AudioSettingsWindow::ShowError( const std::string& message ) {
+    void AudioSettingsPage::ShowError( const std::string& message ) {
         m_Error.set_markup( "<span foreground=\"#c01c28\">" + DisplayMarkup( message ) + "</span>" );
         m_Error.set_visible( true );
     }
 
-    void AudioSettingsWindow::SetMonitor( audio::CaptureMonitor monitor ) {
+    void AudioSettingsPage::SetMonitor( audio::CaptureMonitor monitor ) {
         try {
             /* The microphone test must not reach the server, so transmission pauses while it plays back. */
             if ( monitor == audio::CaptureMonitor::Loopback && m_Audio.TransmitEnabled() ) {
