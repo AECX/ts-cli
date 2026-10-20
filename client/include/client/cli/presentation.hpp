@@ -2,6 +2,7 @@
 #define TS_CLIENT_CLI_PRESENTATION_HPP
 
 #include <audio/audio_types.hpp>
+#include <client/cli/command_output.hpp>
 #include <client/notification.hpp>
 #include <client/runtime/event.hpp>
 #include <functional>
@@ -15,22 +16,22 @@
 
 namespace ts::client::cli {
 
-    class Presentation {
+    class Presentation: public CommandOutput {
       public:
         Presentation( std::ostream& output, bool useColor, NotificationCallback notify );
 
         void Print( const RuntimeEvent& event );
         void Print( const protocol::SessionEvent& event );
-        void Clear();
+        void Clear() override;
         void SetCurrentChannel( std::string_view channel );
         void SetCurrentNickname( std::string_view nickname );
         void PrintPrompt();
         void BreakPromptLine();
         void ClearSubmittedInputLine();
 
-        void PrintHelp();
-        void PrintError( std::string_view message );
-        void PrintInfo( std::string_view message );
+        void PrintHelp() override;
+        void PrintError( std::string_view message ) override;
+        void PrintInfo( std::string_view message ) override;
 
       private:
         void PrintTextMessage( const protocol::TextMessageEvent& event );

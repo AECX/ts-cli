@@ -6,6 +6,7 @@
 #include <client/runtime/event.hpp>
 #include <client/runtime/event_queue.hpp>
 #include <client/runtime/network_runtime.hpp>
+#include <client/runtime/server_snapshot.hpp>
 #include <config/user_config.hpp>
 #include <exception>
 #include <map>
@@ -45,6 +46,14 @@ namespace ts::client {
         if ( m_Thread.joinable() ) {
             m_Thread.join();
         }
+    }
+
+    void NetworkRuntime::EnableLiveStateEvents() {
+        if ( m_Thread.joinable() ) {
+            throw std::runtime_error( "Live state events must be enabled before the network runtime starts" );
+        }
+
+        m_PublishLiveState = true;
     }
 
     void NetworkRuntime::Start() {
@@ -92,6 +101,7 @@ namespace ts::client {
                     SyncTalkerSettings( m_Connection );
 
                     if ( !ProcessVoiceEvent( event ) ) {
+                        PublishServerSnapshotIfChanged( m_Connection );
                         m_EventQueue.Push( std::move( event ) );
                     }
                 },
@@ -101,6 +111,8 @@ namespace ts::client {
                     SyncTalkerSettings( m_Connection );
                     ProcessActions( m_Connection );
                     ProcessAudio( m_Connection );
+                    PublishServerSnapshotIfChanged( m_Connection );
+                    PublishTalkStateIfChanged();
                 } );
 
             /*
@@ -117,6 +129,36 @@ namespace ts::client {
 
         m_ActionQueue.Close();
         m_EventQueue.Close();
+    }
+
+    void NetworkRuntime::PublishTalkStateIfChanged() {
+        if ( !m_PublishLiveState ) {
+            return;
+        }
+
+        const bool expired = m_TalkerActivity.Expire( TalkerActivity::Clock::now() );
+
+        if ( !expired && !m_TalkStateChanged ) {
+            return;
+        }
+
+        m_TalkStateChanged = false;
+        m_EventQueue.Push( TalkStateEvent { .talkingClientIds = m_TalkerActivity.Talking() } );
+    }
+
+    void NetworkRuntime::PublishServerSnapshotIfChanged( const protocol::Connection& connection ) {
+        if ( !m_PublishLiveState ) {
+            return;
+        }
+
+        ServerSnapshot snapshot = CaptureServerSnapshot( connection );
+
+        if ( m_LastServerSnapshot && *m_LastServerSnapshot == snapshot ) {
+            return;
+        }
+
+        m_LastServerSnapshot = snapshot;
+        m_EventQueue.Push( ServerSnapshotEvent { .snapshot = std::move( snapshot ) } );
     }
 
     void NetworkRuntime::ProcessActions( protocol::Connection& connection ) {
@@ -137,12 +179,15 @@ namespace ts::client {
                 m_AudioTransmitRevision = transmitChange->revision;
             }
 
-            if ( !m_AudioStatePublished || status.available != m_AudioAvailable || transmitChange ) {
+            if ( !m_AudioStatePublished || status.available != m_AudioAvailable || transmitChange ||
+                 status.playbackMuted != m_AudioPlaybackMuted ) {
                 connection.SetAudioState( protocol::AudioState { .inputHardware = status.available,
                                                                  .outputHardware = status.available,
-                                                                 .inputMuted = !m_AudioTransmitEnabled } );
+                                                                 .inputMuted = !m_AudioTransmitEnabled,
+                                                                 .outputMuted = status.playbackMuted } );
                 m_AudioStatePublished = true;
                 m_AudioAvailable = status.available;
+                m_AudioPlaybackMuted = status.playbackMuted;
             }
 
             audio::EncodedFrame frame;
@@ -158,6 +203,12 @@ namespace ts::client {
 
                 const std::span<const std::byte> data( frame.data.data(), frame.size );
                 connection.SendVoice( data, frame.talkStart );
+
+                if ( m_PublishLiveState ) {
+                    m_TalkStateChanged =
+                        m_TalkerActivity.Observe( connection.ClientId(), frame.talkEnd, TalkerActivity::Clock::now() ) ||
+                        m_TalkStateChanged;
+                }
             }
         } catch ( const std::exception& exception ) {
             m_Audio.SetTransmitEnabled( false );
@@ -229,6 +280,12 @@ namespace ts::client {
         std::copy( voice->frame.data.begin(), voice->frame.data.end(), frame.data.begin() );
 
         (void)m_Audio.SubmitIncoming( frame );
+
+        if ( m_PublishLiveState ) {
+            m_TalkStateChanged =
+                m_TalkerActivity.Observe( frame.clientId, frame.talkEnd, TalkerActivity::Clock::now() ) || m_TalkStateChanged;
+        }
+
         return true;
     }
 

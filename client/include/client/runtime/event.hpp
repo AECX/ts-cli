@@ -1,9 +1,11 @@
 #ifndef TS_CLIENT_RUNTIME_EVENT_HPP
 #define TS_CLIENT_RUNTIME_EVENT_HPP
 
+#include <client/runtime/server_snapshot.hpp>
 #include <cstdint>
 #include <protocol/session/disconnect.hpp>
 #include <protocol/session/event.hpp>
+#include <set>
 #include <string>
 #include <variant>
 
@@ -39,12 +41,29 @@ namespace ts::client {
         protocol::DisconnectInfo info;
     };
 
+    /*
+     * The channel/client tree changed. Like TalkStateEvent, only published
+     * when the runtime was asked for live state
+     * (NetworkRuntime::EnableLiveStateEvents), i.e. by front ends that render
+     * a live tree.
+     */
+    struct ServerSnapshotEvent {
+        ServerSnapshot snapshot;
+    };
+
+    /* The set of clients currently transmitting voice changed; includes ourselves. */
+    struct TalkStateEvent {
+        std::set<std::uint16_t> talkingClientIds;
+    };
+
     using RuntimeEvent = std::variant<ProtocolEvent,
                                       ActionErrorEvent,
                                       ActionInfoEvent,
                                       CurrentChannelChangedEvent,
                                       CurrentNicknameChangedEvent,
-                                      DisconnectedEvent>;
+                                      DisconnectedEvent,
+                                      ServerSnapshotEvent,
+                                      TalkStateEvent>;
 
 } // namespace ts::client
 

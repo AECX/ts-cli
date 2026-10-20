@@ -4,8 +4,10 @@
 #include <audio/capture_gate.hpp>
 #include <audio/spsc_ring.hpp>
 #include <audio/voice_jitter_buffer.hpp>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 
 int main() {
     ts::audio::SpscRing<int, 4> ring;
@@ -208,6 +210,73 @@ int main() {
         if ( engine.TransmitEnabled() || !disabledState || disabledState->enabled ||
              disabledState->revision <= enabledState->revision ) {
             std::cerr << "Audio transmit disable transition test failed\n";
+            return EXIT_FAILURE;
+        }
+    }
+
+    if ( engine.PlaybackMuted() ) {
+        std::cerr << "Audio playback started muted\n";
+        return EXIT_FAILURE;
+    }
+
+    engine.SetPlaybackMuted( true );
+
+    if ( !engine.PlaybackMuted() || !engine.Status().playbackMuted ) {
+        std::cerr << "Audio playback mute was not applied\n";
+        return EXIT_FAILURE;
+    }
+
+    engine.SetPlaybackMuted( false );
+
+    if ( engine.PlaybackMuted() || engine.Status().playbackMuted ) {
+        std::cerr << "Audio playback unmute was not applied\n";
+        return EXIT_FAILURE;
+    }
+
+    {
+        ts::audio::CaptureGate gate;
+        ts::audio::PcmFrame loud;
+        loud.samples.fill( 0.1F );
+
+        if ( !gate.Process( loud, -45.0F ) || std::abs( gate.LevelDb() - -20.0F ) > 0.01F ) {
+            std::cerr << "Capture gate level/activation test failed\n";
+            return EXIT_FAILURE;
+        }
+
+        const ts::audio::PcmFrame silence;
+        (void)gate.Process( silence, -45.0F );
+
+        if ( gate.LevelDb() != -100.0F || !gate.Active() ) {
+            std::cerr << "Capture gate silence level or hangover test failed\n";
+            return EXIT_FAILURE;
+        }
+    }
+
+    if ( engine.CaptureMonitorMode() != ts::audio::CaptureMonitor::Off || engine.CurrentInputLevel().voiceActive ) {
+        std::cerr << "Audio capture monitor did not start off\n";
+        return EXIT_FAILURE;
+    }
+
+    /* Like transmission, monitoring needs a working backend; see above. */
+    if ( status.available ) {
+        engine.SetCaptureMonitor( ts::audio::CaptureMonitor::Loopback );
+
+        if ( engine.CaptureMonitorMode() != ts::audio::CaptureMonitor::Loopback || engine.TransmitEnabled() ) {
+            std::cerr << "Audio loopback monitor changed transmit state\n";
+            return EXIT_FAILURE;
+        }
+
+        engine.SetCaptureMonitor( ts::audio::CaptureMonitor::Off );
+    } else {
+        bool rejected = false;
+        try {
+            engine.SetCaptureMonitor( ts::audio::CaptureMonitor::Level );
+        } catch ( const std::runtime_error& ) {
+            rejected = true;
+        }
+
+        if ( !rejected ) {
+            std::cerr << "Audio capture monitor accepted an unavailable backend\n";
             return EXIT_FAILURE;
         }
     }

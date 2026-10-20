@@ -63,7 +63,7 @@ namespace ts::client {
                         protocol::TextMessageTarget { .mode = protocol::TextMessageTargetMode::Private, .id = target->id },
                         value.text );
                 },
-                [&]( const SendReplyMessageAction& value ) {
+                [&]( const SendTextMessageAction& value ) {
                     connection.SendTextMessage( value.target, value.text );
                 },
                 [&]( const JoinChannelAction& value ) {
@@ -77,6 +77,14 @@ namespace ts::client {
 
                     connection.MoveToChannel( target->id );
                 },
+                [&]( const MoveToChannelAction& value ) {
+                    if ( connection.Channels().Find( value.channelId ) == nullptr ) {
+                        PushError( "Channel " + std::to_string( value.channelId ) + " no longer exists" );
+                        return;
+                    }
+
+                    connection.MoveToChannel( value.channelId );
+                },
                 [&]( const ChangeNicknameAction& value ) {
                     connection.ChangeNickname( value.nickname );
                 },
@@ -85,6 +93,9 @@ namespace ts::client {
                 },
                 [&]( const UserSettingsAction& value ) {
                     ProcessUserSettings( connection, value );
+                },
+                [&]( const SetUserAudioAction& value ) {
+                    ProcessSetUserAudio( connection, value );
                 } },
             action );
     }
@@ -211,6 +222,24 @@ namespace ts::client {
         line << client->nickname << " [" << client->id << "]: volume=" << settings.volumeDb
              << " dB, muted=" << ( settings.muted ? "yes" : "no" ) << ", uid=" << client->uniqueId;
         PushInfo( line.str() );
+    }
+
+    void ActionProcessor::ProcessSetUserAudio( protocol::Connection& connection, const SetUserAudioAction& action ) {
+        if ( action.clientId == connection.ClientId() ) {
+            PushError( "Per-user playback settings cannot target yourself" );
+            return;
+        }
+
+        const protocol::Client* client = connection.Clients().Find( action.clientId );
+        if ( client == nullptr || !client->detailsKnown || client->uniqueId.empty() ) {
+            PushError( "Client identity is not known yet" );
+            return;
+        }
+
+        m_UserConfigStore.Save( client->uniqueId, action.settings );
+        m_Audio.SetTalkerSettings(
+            action.clientId,
+            audio::TalkerSettings { .volumeDb = action.settings.volumeDb, .muted = action.settings.muted } );
     }
 
     std::vector<cli::TargetCandidate> ActionProcessor::ClientCandidates( const protocol::Connection& connection ) {

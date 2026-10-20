@@ -3,6 +3,7 @@
 
 #include <audio/audio_engine.hpp>
 #include <client/cli/command.hpp>
+#include <client/cli/command_output.hpp>
 #include <client/notification.hpp>
 #include <client/runtime/action_queue.hpp>
 #include <client/runtime/event.hpp>
@@ -14,14 +15,12 @@
 
 namespace ts::client::cli {
 
-    class Presentation;
-
     class CommandHandler {
       public:
         using PersistConfigCallback = std::function<void( const config::ConfigMutator& )>;
 
         CommandHandler( ActionQueue& actionQueue,
-                        Presentation& presentation,
+                        CommandOutput& output,
                         NotificationCallback notify,
                         audio::AudioEngine* audio = nullptr,
                         PersistConfigCallback persistConfig = {} );
@@ -35,7 +34,7 @@ namespace ts::client::cli {
         void PersistAudioSettings();
 
         ActionQueue& m_ActionQueue;
-        Presentation& m_Presentation;
+        CommandOutput& m_Output;
         NotificationCallback m_Notify;
         std::optional<protocol::TextMessageTarget> m_ReplyTarget;
         audio::AudioEngine* m_Audio = nullptr;

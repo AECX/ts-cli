@@ -6,6 +6,7 @@ add_executable(ts-client-tests
     command_parser_test.cpp
     event_queue_test.cpp
     presentation_test.cpp
+    talker_activity_test.cpp
     target_resolver_test.cpp
 )
 

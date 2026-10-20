@@ -61,6 +61,23 @@ namespace ts::config::test {
             Expect( IdentityStore::Load( paths.IdentityFile() ).identity.PublicKey() == publicKey,
                     "Setup recovery replaced an existing local identity" );
 
+            std::filesystem::remove( paths.ConfigFile() );
+            const Config defaulted = ConfigSetup::CreateDefault( paths.ConfigFile(), paths.IdentityFile() );
+            ExpectEqual( defaulted.Profile().nickname,
+                         Config::DefaultProfile().nickname,
+                         "Default setup did not use the default nickname" );
+            Expect( std::filesystem::exists( paths.ConfigFile() ), "Default setup did not create config" );
+            Expect( IdentityStore::Load( paths.IdentityFile() ).identity.PublicKey() == publicKey,
+                    "Default setup replaced an existing local identity" );
+
+            std::filesystem::remove( paths.ConfigFile() );
+            std::filesystem::remove( paths.IdentityFile() );
+            (void)ConfigSetup::CreateDefault( paths.ConfigFile(), paths.IdentityFile() );
+            const LocalIdentity generated = IdentityStore::Load( paths.IdentityFile() );
+            ExpectEqual( generated.securityLevel,
+                         IdentityStore::DefaultSecurityLevel(),
+                         "Default setup used an unexpected security level" );
+            Expect( generated.identity.PublicKey() != publicKey, "Default setup did not generate a new identity" );
         } catch ( ... ) {
             std::filesystem::remove_all( root );
             throw;

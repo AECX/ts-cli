@@ -2,6 +2,8 @@
 #define TS_CLIENT_RUNTIME_ACTION_HPP
 
 #include <client/cli/command.hpp>
+#include <config/user_config.hpp>
+#include <cstdint>
 #include <optional>
 #include <protocol/message/text_message.hpp>
 #include <string>
@@ -18,13 +20,18 @@ namespace ts::client {
         std::string text;
     };
 
-    struct SendReplyMessageAction {
+    /* Sends to an already-resolved target, e.g. a /r reply or a conversation picked in a GUI. */
+    struct SendTextMessageAction {
         protocol::TextMessageTarget target;
         std::string text;
     };
 
     struct JoinChannelAction {
         std::string channel;
+    };
+
+    struct MoveToChannelAction {
+        std::uint64_t channelId = 0;
     };
 
     struct ChangeNicknameAction {
@@ -41,13 +48,21 @@ namespace ts::client {
         float numberValue = 0.0F;
     };
 
+    /* Replaces a remote client's persistent local playback settings without printing anything. */
+    struct SetUserAudioAction {
+        std::uint16_t clientId = 0;
+        config::UserConfig settings;
+    };
+
     using ClientAction = std::variant<SendCurrentChannelMessageAction,
                                       SendPrivateMessageAction,
-                                      SendReplyMessageAction,
+                                      SendTextMessageAction,
                                       JoinChannelAction,
+                                      MoveToChannelAction,
                                       ChangeNicknameAction,
                                       ListTreeAction,
-                                      UserSettingsAction>;
+                                      UserSettingsAction,
+                                      SetUserAudioAction>;
 
 } // namespace ts::client
 

@@ -67,7 +67,7 @@ namespace ts::client::test {
 
         Expect( actionQueue.TryPop( action ), "/r did not queue a reply action" );
 
-        const auto* reply = std::get_if<SendReplyMessageAction>( &action );
+        const auto* reply = std::get_if<SendTextMessageAction>( &action );
 
         Expect( reply != nullptr, "/r queued the wrong action type" );
 

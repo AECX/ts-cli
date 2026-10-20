@@ -21,6 +21,15 @@ namespace ts::config {
                                          std::istream& input,
                                          std::ostream& output );
 
+        /*
+         * Non-interactive first run for front ends without a terminal: writes
+         * the default client profile and generates a new identity at the
+         * default security level, unless a valid identity already exists, in
+         * which case it is preserved exactly like the interactive setup does.
+         */
+        [[nodiscard]] static Config CreateDefault( const std::filesystem::path& configPath,
+                                                   const std::filesystem::path& identityPath );
+
       private:
         [[nodiscard]] static std::string
             Prompt( std::istream& input, std::ostream& output, std::string_view label, std::string_view defaultValue );

@@ -1,10 +1,12 @@
 # Runtime model
 
-`ts-cli` separates terminal interaction, TeamSpeak network state and audio processing so protocol objects are not concurrently mutated from unrelated threads.
+`ts-cli` separates user interaction (the terminal client, or the [GTK client](gtk.md)), TeamSpeak network state and audio processing so protocol objects are not concurrently mutated from unrelated threads.
 
 ## Main/UI thread
 
 The main thread owns the interactive terminal loop. It reads input, uses the command parser/handler to turn it into client actions and renders runtime events through the presentation layer.
+
+The GTK client's main thread runs the GTK main loop instead and drains the event queue from a short GLib timer. It reuses the same command handler for slash commands, with the window as its `cli::CommandOutput` in place of the terminal presentation.
 
 The UI does not directly manipulate `protocol::Connection`. Commands that affect TeamSpeak state are pushed to the action queue for the network runtime to execute.
 
@@ -16,11 +18,13 @@ Audio control commands are the exception at the API boundary: the command handle
 
 Its cycle callback performs three jobs:
 
-1. publish current-channel/nickname changes to the UI event queue;
+1. publish current-channel/nickname changes (and, when enabled, server snapshots and talk state) to the UI event queue;
 2. drain client actions and apply them to the connection;
 3. synchronize audio state and outgoing encoded voice with the TeamSpeak connection.
 
 This keeps packet sequencing, crypto state, server state stores and command processing under one network-side owner.
+
+A front end that renders a live channel/client tree calls `NetworkRuntime::EnableLiveStateEvents()` before starting the runtime. The network thread then copies the channel and client stores into a self-contained `ServerSnapshot` after events and cycles, and pushes a `ServerSnapshotEvent` only when it differs from the last one published. The UI thread renders those copies and never reads protocol state directly. In the same mode it tracks who is transmitting, from incoming voice packets and its own outgoing frames: a client talks from its first packet until its talk-end packet, or until no packet arrived for 500 ms (talk-end packets can be lost). Changes are published as a `TalkStateEvent`. The terminal client does not enable this.
 
 Incoming protocol events are forwarded to the UI except voice events, which retain their encoded payload/voice id and are submitted to the audio engine. Decoding stays in the audio worker so packet reordering, Opus state and playback timing remain per talker.
 
@@ -76,7 +80,7 @@ The network runtime only transmits frames matching the current revision. This so
 - PCM/Opus frames queued just before `/mute` cannot leak after the mute request;
 - an old talk-end marker cannot terminate a newly started talk burst after `/unmute`.
 
-The network runtime also publishes audio hardware availability and `client_input_muted` through the TeamSpeak session state.
+The network runtime also publishes audio hardware availability, `client_input_muted` and `client_output_muted` (speaker mute) through the TeamSpeak session state.
 
 ## Shutdown
 

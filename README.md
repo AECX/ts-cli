@@ -36,6 +36,8 @@ With `ts-cli`, you can:
 
 The client starts every session with the microphone muted.
 
+Prefer a window? `ts-gtk` is a minimal GTK front end (Linux and Windows) on the same runtime and configuration: an audio bar for mic/speaker mute and an audio settings window (devices, RNNoise, threshold, microphone test), a live channel/client tree that highlights who is talking, and a text feed plus input line for the selected channel or private conversation. See [GTK client](docs/client/gtk.md).
+
 ---
 
 ## Quick start
@@ -118,7 +120,7 @@ $XDG_CONFIG_HOME/ts-cli/    (~/.config/ts-cli/ if unset)
 └── users/          # per-remote-user local settings, keyed by stable identity
 ```
 
-See [Configuration and identity](docs/client/configuration.md) for the full layout and file formats.
+See [Configuration and identity](docs/client/configuration.md) for the full layout and file formats. The GTK client shares these files.
 
 ---
 
@@ -132,7 +134,7 @@ Once dependencies are installed, a single `Makefile` drives all three targets �
 make linux
 ```
 
-The resulting binary is `build/linux/client/ts-cli`. Windows builds produce a self-contained folder (`build/windows-cross/dist/ts-cli/`), with the DLLs next to the executable; see [BUILDING.md](BUILDING.md).
+The resulting binaries are `build/linux/client/ts-cli` and the GTK client `build/linux/client-gtk/ts-gtk`. Windows builds produce a self-contained folder per program (`build/windows-cross/dist/ts-cli/` and `dist/ts-gtk/`), with the DLLs next to the executable; see [BUILDING.md](BUILDING.md).
 
 ---
 
@@ -175,7 +177,8 @@ For protocol and architecture details, see the documentation under [`docs/`](doc
 ts-cli/
 ├── audio/       # PipeWire/WASAPI, Opus, filters, jitter, mixing and audio worker
 ├── client/      # CLI and runtime integration
-├── config/      # configuration, identity and per-user settings
+├── client-gtk/  # minimal GTK front end on top of client/
+├── config/      # configuration, identity and per-user settings shared by both clients
 ├── docs/        # architecture and protocol documentation
 ├── log/         # logging
 ├── net/         # networking
@@ -194,6 +197,7 @@ The project keeps these boundaries intentionally strict: protocol code does not 
 
 * [Documentation index](docs/README.md)
 * [Usage guide](docs/client/usage.md) — everyday commands and full command reference
+* [GTK client](docs/client/gtk.md) — the minimal graphical client
 * [Using the protocol library](docs/protocol/api.md) — the C++ API, with worked examples, for writing your own client against `ts-protocol`
 * [Audio and voice](docs/client/audio.md)
 * [Runtime model](docs/client/runtime.md)

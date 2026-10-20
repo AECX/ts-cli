@@ -64,6 +64,18 @@ namespace ts::audio {
         bool talkEnd = false;
     };
 
+    /*
+     * Capture processing that runs regardless of whether anything is
+     * transmitted: Level runs filter + voice-activation gate for metering,
+     * Loopback additionally plays the encoded result back locally.
+     */
+    enum class CaptureMonitor : std::uint8_t { Off, Level, Loopback };
+
+    struct InputLevel {
+        float levelDb = -100.0F;
+        bool voiceActive = false;
+    };
+
     struct TalkerSettings {
         float volumeDb = 0.0F;
         bool muted = false;
@@ -79,6 +91,7 @@ namespace ts::audio {
     struct AudioStatus {
         bool available = false;
         bool transmitEnabled = false;
+        bool playbackMuted = false;
         std::string input = "default";
         std::string output = "default";
         std::string captureFilter = "none";

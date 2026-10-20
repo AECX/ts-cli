@@ -8,6 +8,8 @@ add_library(ts-client-support STATIC
     src/runtime/action_queue.cpp
     src/runtime/event_queue.cpp
     src/runtime/network_runtime.cpp
+    src/runtime/server_snapshot.cpp
+    src/runtime/talker_activity.cpp
 )
 
 target_include_directories(ts-client-support

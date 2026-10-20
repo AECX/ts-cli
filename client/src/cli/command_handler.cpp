@@ -2,7 +2,6 @@
 #include <client/cli/command.hpp>
 #include <client/cli/command_handler.hpp>
 #include <client/cli/command_parser.hpp>
-#include <client/cli/presentation.hpp>
 #include <client/notification.hpp>
 #include <client/runtime/action.hpp>
 #include <client/runtime/action_queue.hpp>
@@ -19,11 +18,11 @@
 namespace ts::client::cli {
 
     CommandHandler::CommandHandler( ActionQueue& actionQueue,
-                                    Presentation& presentation,
+                                    CommandOutput& output,
                                     NotificationCallback notify,
                                     audio::AudioEngine* audio,
                                     PersistConfigCallback persistConfig ):
-        m_ActionQueue( actionQueue ), m_Presentation( presentation ), m_Notify( std::move( notify ) ), m_Audio( audio ),
+        m_ActionQueue( actionQueue ), m_Output( output ), m_Notify( std::move( notify ) ), m_Audio( audio ),
         m_PersistConfig( std::move( persistConfig ) ) {
     }
 
@@ -36,7 +35,7 @@ namespace ts::client::cli {
                     } );
                     m_Notify( ts::audio::NotificationType::Success );
                 } catch ( const std::exception& exception ) {
-                    m_Presentation.PrintError( exception.what() );
+                    m_Output.PrintError( exception.what() );
                 }
             }
             return;
@@ -82,11 +81,11 @@ namespace ts::client::cli {
                         m_ActionQueue.Push( SendPrivateMessageAction { .target = command.target, .text = command.text } );
                     } else if constexpr ( std::is_same_v<CommandType, ReplyCommand> ) {
                         if ( !m_ReplyTarget ) {
-                            m_Presentation.PrintError( "There is no private message to reply to" );
+                            m_Output.PrintError( "There is no private message to reply to" );
                             return true;
                         }
 
-                        m_ActionQueue.Push( SendReplyMessageAction { .target = *m_ReplyTarget, .text = command.text } );
+                        m_ActionQueue.Push( SendTextMessageAction { .target = *m_ReplyTarget, .text = command.text } );
                     } else if constexpr ( std::is_same_v<CommandType, JoinCommand> ) {
                         m_ActionQueue.Push( JoinChannelAction { .channel = command.channel } );
                     } else if constexpr ( std::is_same_v<CommandType, NickCommand> ) {
@@ -99,18 +98,18 @@ namespace ts::client::cli {
                                                                  .numberValue = command.numberValue } );
                     } else if constexpr ( std::is_same_v<CommandType, AudioCommand> ) {
                         if ( m_Audio == nullptr ) {
-                            m_Presentation.PrintError( "Audio subsystem is unavailable" );
+                            m_Output.PrintError( "Audio subsystem is unavailable" );
                             return true;
                         }
 
                         switch ( command.kind ) {
                             case AudioCommandKind::Devices: {
                                 const auto devices = m_Audio->Devices();
-                                m_Presentation.PrintInfo( "audio device selector 'default' follows the system default" );
+                                m_Output.PrintInfo( "audio device selector 'default' follows the system default" );
 
                                 for ( const audio::DeviceKind kind : { audio::DeviceKind::Input, audio::DeviceKind::Output } ) {
-                                    m_Presentation.PrintInfo( kind == audio::DeviceKind::Input ? "input devices:"
-                                                                                               : "output devices:" );
+                                    m_Output.PrintInfo( kind == audio::DeviceKind::Input ? "input devices:"
+                                                                                         : "output devices:" );
                                     bool found = false;
 
                                     for ( const audio::AudioDevice& device : devices ) {
@@ -124,11 +123,11 @@ namespace ts::client::cli {
                                         if ( device.name != device.description ) {
                                             line << " (" << device.name << ')';
                                         }
-                                        m_Presentation.PrintInfo( line.str() );
+                                        m_Output.PrintInfo( line.str() );
                                     }
 
                                     if ( !found ) {
-                                        m_Presentation.PrintInfo( "  (none discovered)" );
+                                        m_Output.PrintInfo( "  (none discovered)" );
                                     }
                                 }
                                 break;
@@ -146,20 +145,20 @@ namespace ts::client::cli {
                                 if ( !status.error.empty() ) {
                                     line << ", error=" << status.error;
                                 }
-                                m_Presentation.PrintInfo( line.str() );
+                                m_Output.PrintInfo( line.str() );
                                 break;
                             }
 
                             case AudioCommandKind::Input:
                                 m_Audio->SetInputDevice( command.value );
                                 PersistAudioSettings();
-                                m_Presentation.PrintInfo( "audio input set to " + command.value );
+                                m_Output.PrintInfo( "audio input set to " + command.value );
                                 break;
 
                             case AudioCommandKind::Output:
                                 m_Audio->SetOutputDevice( command.value );
                                 PersistAudioSettings();
-                                m_Presentation.PrintInfo( "audio output set to " + command.value );
+                                m_Output.PrintInfo( "audio output set to " + command.value );
                                 break;
 
                             case AudioCommandKind::Filter:
@@ -169,11 +168,11 @@ namespace ts::client::cli {
                                     for ( const std::string& filter : m_Audio->CaptureFilters() ) {
                                         line << ' ' << filter;
                                     }
-                                    m_Presentation.PrintInfo( line.str() );
+                                    m_Output.PrintInfo( line.str() );
                                 } else {
                                     m_Audio->SetCaptureFilter( command.value );
                                     PersistAudioSettings();
-                                    m_Presentation.PrintInfo( "audio capture filter set to " + command.value );
+                                    m_Output.PrintInfo( "audio capture filter set to " + command.value );
                                 }
                                 break;
 
@@ -182,15 +181,15 @@ namespace ts::client::cli {
                                 PersistAudioSettings();
                                 std::ostringstream line;
                                 line << "audio activation threshold set to " << command.numberValue << " dBFS";
-                                m_Presentation.PrintInfo( line.str() );
+                                m_Output.PrintInfo( line.str() );
                                 break;
                             }
 
                             case AudioCommandKind::Transmit:
                                 const bool enabled = command.value == "on";
                                 m_Audio->SetTransmitEnabled( enabled );
-                                m_Presentation.PrintInfo( enabled ? "microphone transmission enabled"
-                                                                  : "microphone transmission disabled" );
+                                m_Output.PrintInfo( enabled ? "microphone transmission enabled"
+                                                            : "microphone transmission disabled" );
                                 if ( enabled ) {
                                     m_Notify( ts::audio::NotificationType::Success );
                                 } else {
@@ -199,12 +198,12 @@ namespace ts::client::cli {
                                 break;
                         }
                     } else if constexpr ( std::is_same_v<CommandType, ClearCommand> ) {
-                        m_Presentation.Clear();
+                        m_Output.Clear();
                     } else if constexpr ( std::is_same_v<CommandType, HelpCommand> ) {
-                        m_Presentation.PrintInfo( "showing command help" );
-                        m_Presentation.PrintHelp();
+                        m_Output.PrintInfo( "showing command help" );
+                        m_Output.PrintHelp();
                     } else if constexpr ( std::is_same_v<CommandType, QuitCommand> ) {
-                        m_Presentation.PrintInfo( "disconnecting" );
+                        m_Output.PrintInfo( "disconnecting" );
                         return false;
                     }
 
@@ -212,7 +211,7 @@ namespace ts::client::cli {
                 },
                 *parsed );
         } catch ( const std::runtime_error& exception ) {
-            m_Presentation.PrintError( exception.what() );
+            m_Output.PrintError( exception.what() );
             return true;
         }
     }

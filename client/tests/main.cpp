@@ -12,6 +12,7 @@ namespace ts::client::test {
     void RunCommandParserTests();
     void RunEventQueueTests();
     void RunPresentationTests();
+    void RunTalkerActivityTests();
     void RunTargetResolverTests();
 
     struct TestGroup {
@@ -22,13 +23,14 @@ namespace ts::client::test {
 } // namespace ts::client::test
 
 int main() {
-    constexpr std::array<ts::client::test::TestGroup, 7> TestGroups = {
+    constexpr std::array<ts::client::test::TestGroup, 8> TestGroups = {
         ts::client::test::TestGroup { .name = "ActionQueue", .run = ts::client::test::RunActionQueueTests },
         ts::client::test::TestGroup { .name = "ChannelTreeView", .run = ts::client::test::RunChannelTreeViewTests },
         ts::client::test::TestGroup { .name = "CommandHandler", .run = ts::client::test::RunCommandHandlerTests },
         ts::client::test::TestGroup { .name = "CommandParser", .run = ts::client::test::RunCommandParserTests },
         ts::client::test::TestGroup { .name = "EventQueue", .run = ts::client::test::RunEventQueueTests },
         ts::client::test::TestGroup { .name = "Presentation", .run = ts::client::test::RunPresentationTests },
+        ts::client::test::TestGroup { .name = "TalkerActivity", .run = ts::client::test::RunTalkerActivityTests },
         ts::client::test::TestGroup { .name = "TargetResolver", .run = ts::client::test::RunTargetResolverTests } };
 
     std::size_t failed = 0;

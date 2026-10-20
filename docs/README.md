@@ -5,6 +5,7 @@ This directory contains user-, runtime- and protocol-facing documentation for `t
 ## Client
 
 - [Usage guide](client/usage.md) — everyday commands, voice activation, audio devices, per-user controls and the full command reference
+- [GTK client](client/gtk.md) — the minimal graphical client: layout, conversations, and how it reuses the terminal client's runtime
 - [Audio and voice](client/audio.md) — PipeWire/WASAPI/Opus pipeline, devices, mute behavior, capture filters and RNNoise
 - [Runtime model](client/runtime.md) — UI/network/audio ownership, queues, threading and shutdown
 - [Configuration and identity](client/configuration.md) — XDG config location, wire profile and persistent TeamSpeak identity

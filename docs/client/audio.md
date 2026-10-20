@@ -29,6 +29,10 @@ to stop. These are aliases for:
 
 Muting is not implemented as a cosmetic local flag. The audio engine advances a transmit-state revision whenever transmission changes. Encoded frames carry the revision that produced them, allowing the network thread to reject queued frames from an older transmit state. This prevents microphone audio that was already queued before `/mute` from leaking afterward.
 
+Speaker mute is the playback-side counterpart, currently exposed by the [GTK client](gtk.md)'s audio bar. Remote voice keeps being decoded, so each talker's jitter/decoder timeline stays in sync, but none of it is mixed into playback while muted; local notification sounds still play. Like the microphone, it is session-only, and the network runtime publishes it to the server as `client_output_muted` so other clients show the usual "sound muted" indicator.
+
+For settings UIs the engine also has a capture monitor that runs the capture path without transmitting anything. *Level* runs capture filtering and the voice-activation gate and exposes the input level and gate state, so a threshold can be tuned against a live meter. *Loopback* additionally feeds the encoded frames, exactly those that would be sent, through the same jitter buffer and Opus decoder as a remote talker into local playback. That makes it a faithful "test microphone": noise suppression, the activation threshold with its hangover, and Opus artifacts are all audible. The loopback talker ignores speaker mute. The GTK client's [audio settings](gtk.md#audio-settings) use both, and mute transmission while they are open.
+
 When a talk burst ends, the audio worker emits an empty encoded frame as the TeamSpeak talk-end marker. A new talk burst begins with a short run of packets carrying the talk-start flag.
 
 ## Capture path
