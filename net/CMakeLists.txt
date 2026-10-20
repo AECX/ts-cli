@@ -35,13 +35,8 @@ if(WIN32)
             src/win32/win32_winsock.cpp
     )
 
-    # Statically link winpthreads (the mingw-w64-gcc "posix" thread model
-    # backing std::thread/std::promise) so the bounded SRV lookup in
-    # endpoint_resolution.cpp doesn't need a runtime DLL alongside the .exe.
     target_link_libraries(ts-net
         PRIVATE
-            -static
-            winpthread
             ws2_32
             dnsapi
     )

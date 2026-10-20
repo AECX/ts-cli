@@ -103,17 +103,6 @@ target_link_libraries(ts-protocol
         PkgConfig::SODIUM
 )
 
-if(WIN32)
-    # Static OpenSSL pulls in a handful of Win32 system libraries for
-    # CryptoAPI/certificate-store and socket-adjacent symbols.
-    target_link_libraries(ts-protocol
-        PRIVATE
-            ws2_32
-            gdi32
-            crypt32
-    )
-endif()
-
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()

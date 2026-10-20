@@ -25,11 +25,11 @@ Changes should compile cleanly and keep all tests passing on both targets. Proto
 Releases are cut with `make release`, which requires a clean working tree and only plain `git` — no GitHub-specific tooling. It builds `linux` and `windows-cross` (both format, build, and run their full test suite first — nothing untested gets released), then:
 
 1. shows the current version (read from the `VERSION` file at the repo root) and prompts for the new one — it never bumps the version automatically, and rejects anything that isn't a valid `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-prerelease` semantic version (or is identical to the current one; a version that doesn't look like an increase gets a warning, not a hard block);
-2. packages the two binaries as `ts-cli-v<version>-linux-x86_64` and `ts-cli-v<version>-windows-x86_64.exe` into `build/release/`;
+2. packages `ts-cli-v<version>-linux-x86_64` (the Linux binary) and `ts-cli-v<version>-windows-x86_64.zip` (the `build/windows-cross/dist/ts-cli` folder) into `build/release/`;
 3. asks for a final confirmation, showing exactly what it's about to do;
 4. on confirmation: commits the `VERSION` bump, creates an annotated `v<version>` tag, and pushes both to `origin`.
 
-`make release` stops there — it does not create anything on GitHub itself. A maintainer creates the actual GitHub release from the pushed tag by hand and attaches the two binaries left behind in `build/release/`. Answering anything other than `y` at the confirmation prompt aborts before anything is committed, tagged, or pushed.
+`make release` stops there — it does not create anything on GitHub itself. A maintainer creates the actual GitHub release from the pushed tag by hand and attaches the two files left behind in `build/release/`. Answering anything other than `y` at the confirmation prompt aborts before anything is committed, tagged, or pushed.
 
 ## Project boundaries
 
@@ -54,6 +54,8 @@ Prefer typed messages and state objects over raw command strings in higher layer
 - one concrete backend implementation per build target, kept in its own source subdirectory (`net/src/posix/` + `net/src/win32/`, `log/src/posix/` + `log/src/win32/`, `audio/src/posix/pipewire_backend.cpp` + `audio/src/win32/wasapi_backend.cpp`) and selected by `CMakeLists.txt` based on the target platform — never by `#ifdef` scattered through shared source.
 
 `config/platform/paths.hpp` and `config/platform/secure_file.hpp` (`config/src/posix/` + `config/src/win32/`) follow the same pattern for the per-user config directory and owner-only file permissions. `client/platform/console_io.hpp` and `client/platform/terminal_control.hpp` follow the same pattern for interactive-terminal/stdin handling and cursor control (`client/src/platform/posix/`, `client/src/platform/win32/`), since those are also inherently OS-specific. `audio` ships a real backend on both targets now (PipeWire/Opus on Linux, WASAPI/Opus on Windows); Opus and RNNoise (`audio/src/opus_codec.cpp`, `audio/src/rnnoise_filter.cpp`) are platform-agnostic and stay outside the `posix/`/`win32/` split entirely, wired in once regardless of which backend gets picked.
+
+Link libraries dynamically on every target. On Linux that means the distribution's shared libraries, so security fixes (OpenSSL above all) arrive through the package manager. On Windows, where nothing provides those libraries, each executable is shipped as a folder with the DLLs it imports, taken from MSYS2's UCRT64 packages (see [BUILDING.md](BUILDING.md#output)). Don't add `-static` link flags: GCC applies them to the whole link, and a static C++ runtime in an executable next to DLLs that use the shared one is a bug waiting to happen. A new Windows executable gets its folder from `ts_bundle_windows()` (`cmake/bundle_windows_target.cmake`).
 
 When adding a backend for a target that doesn't have one yet, this is the checklist: implement the missing backend against the existing interface headers, add the corresponding `CMakeLists.txt` branch, and leave every consumer above the backend layer untouched. If a new primitive needs OS-specific types at all, give it the same treatment rather than including platform headers from a public header.
 
