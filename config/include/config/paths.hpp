@@ -1,9 +1,9 @@
-#ifndef TS_CLIENT_CONFIG_PATHS_HPP
-#define TS_CLIENT_CONFIG_PATHS_HPP
+#ifndef TS_CONFIG_PATHS_HPP
+#define TS_CONFIG_PATHS_HPP
 
 #include <filesystem>
 
-namespace ts::client {
+namespace ts::config {
 
     class Paths {
       public:
@@ -27,6 +27,6 @@ namespace ts::client {
         std::filesystem::path m_ConfigDirectory;
     };
 
-} // namespace ts::client
+} // namespace ts::config
 
-#endif // TS_CLIENT_CONFIG_PATHS_HPP
+#endif // TS_CONFIG_PATHS_HPP

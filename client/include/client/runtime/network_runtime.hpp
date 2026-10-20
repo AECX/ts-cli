@@ -12,13 +12,15 @@
 #include <string>
 #include <thread>
 
+namespace ts::config {
+    class UserConfigStore;
+}
+
 namespace ts::protocol {
     class Connection;
 }
 
 namespace ts::client {
-
-    class UserConfigStore;
 
     class NetworkRuntime {
       public:
@@ -26,7 +28,7 @@ namespace ts::client {
                         ActionQueue& actionQueue,
                         EventQueue& eventQueue,
                         audio::AudioEngine& audio,
-                        UserConfigStore& userConfigStore );
+                        config::UserConfigStore& userConfigStore );
 
         ~NetworkRuntime();
 
@@ -56,7 +58,7 @@ namespace ts::client {
         ActionQueue& m_ActionQueue;
         EventQueue& m_EventQueue;
         audio::AudioEngine& m_Audio;
-        UserConfigStore& m_UserConfigStore;
+        config::UserConfigStore& m_UserConfigStore;
         ActionProcessor m_ActionProcessor;
         std::map<std::uint16_t, std::string> m_TalkerIdentities;
         std::uint64_t m_CurrentChannelId = 0;

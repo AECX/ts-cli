@@ -1,7 +1,7 @@
 #include <charconv>
-#include <client/config/user_config.hpp>
-#include <client/platform/secure_file.hpp>
 #include <cmath>
+#include <config/platform/secure_file.hpp>
+#include <config/user_config.hpp>
 #include <cstddef>
 #include <filesystem>
 #include <iomanip>
@@ -13,7 +13,7 @@
 #include <system_error>
 #include <utility>
 
-namespace ts::client {
+namespace ts::config {
 
     namespace {
 
@@ -166,4 +166,4 @@ namespace ts::client {
         }
     }
 
-} // namespace ts::client
+} // namespace ts::config

@@ -2,6 +2,8 @@
 
 `ts-cli` intentionally supports one local TeamSpeak identity. Ordinary client preferences, the local identity, and preferences about remote users are stored separately so each file has one clear responsibility.
 
+All of this is implemented once, in the `ts-config` library (`config/`), and front ends never read or write these files themselves. That includes applying the saved `[audio]` settings to the audio engine at startup (`ApplyAudioSettings`): a saved device or filter that isn't available right now is logged as a warning and skipped, and the remaining settings still apply.
+
 ## Layout
 
 The configuration root is:
@@ -60,24 +62,9 @@ It stores the private TeamSpeak identity together with its security level and va
 
 If `config.conf` is missing but a valid `identity` file still exists, first-run configuration preserves that identity rather than silently replacing it.
 
-### Migration from older configurations
+If `identity` is missing while `config.conf` exists, startup fails instead of silently generating a new identity.
 
-Older versions stored these fields in `config.conf`:
-
-```ini
-identity_security_level=...
-identity_private_key=...
-identity_key_offset=...
-```
-
-When no separate `identity` file exists, startup can migrate a complete legacy identity. Migration is ordered to avoid identity loss:
-
-1. decode and validate the legacy identity;
-2. write the separate `identity` file atomically;
-3. remove the legacy identity fields from the in-memory config;
-4. rewrite `config.conf` without private identity material.
-
-If `config.conf` already uses the new format but `identity` is missing, startup fails instead of silently generating a new identity.
+Only this layout is supported. Configuration keys from older versions (`version_profile`, `identity_security_level`, `identity_private_key`, `identity_key_offset`) are rejected as unknown keys rather than migrated.
 
 The cryptographic role of the identity and key offset is described in [Handshake and session bootstrap](../protocol/handshake.md).
 
@@ -120,6 +107,6 @@ A nickname is resolved against current live client state and then converted to t
 
 ## First-run setup
 
-When no `config.conf` exists, interactive setup collects the client profile. If there is no `identity` file it also creates/imports the one local TeamSpeak identity and calculates its key offset. If an identity file already exists, setup validates and preserves it.
+When no `config.conf` exists, `ts-cli` runs an interactive setup that collects the client profile. If there is no `identity` file it also creates/imports the one local TeamSpeak identity and calculates its key offset. If an identity file already exists, setup validates and preserves it.
 
 See [Audio and voice](audio.md) for runtime audio behavior and [Runtime model](runtime.md) for ownership/threading.

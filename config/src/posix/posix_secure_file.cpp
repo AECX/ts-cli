@@ -1,5 +1,5 @@
 #include <cerrno>
-#include <client/platform/secure_file.hpp>
+#include <config/platform/secure_file.hpp>
 #include <cstddef>
 #include <cstring>
 #include <fcntl.h>
@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace ts::client::platform {
+namespace ts::config::platform {
 
     namespace {
 
@@ -153,4 +153,4 @@ namespace ts::client::platform {
         }
     }
 
-} // namespace ts::client::platform
+} // namespace ts::config::platform

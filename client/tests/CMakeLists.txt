@@ -4,12 +4,9 @@ add_executable(ts-client-tests
     channel_tree_view_test.cpp
     command_handler_test.cpp
     command_parser_test.cpp
-    config_test.cpp
     event_queue_test.cpp
     presentation_test.cpp
-    setup_test.cpp
     target_resolver_test.cpp
-    user_config_test.cpp
 )
 
 target_compile_features(ts-client-tests

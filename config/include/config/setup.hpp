@@ -1,5 +1,5 @@
-#ifndef TS_CLIENT_CONFIG_SETUP_HPP
-#define TS_CLIENT_CONFIG_SETUP_HPP
+#ifndef TS_CONFIG_SETUP_HPP
+#define TS_CONFIG_SETUP_HPP
 
 #include "config.hpp"
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <string_view>
 
-namespace ts::client {
+namespace ts::config {
 
     class ConfigSetup {
       public:
@@ -41,6 +41,6 @@ namespace ts::client {
         [[nodiscard]] static std::uint64_t ParseUnsigned( std::string_view value );
     };
 
-} // namespace ts::client
+} // namespace ts::config
 
-#endif // TS_CLIENT_CONFIG_SETUP_HPP
+#endif // TS_CONFIG_SETUP_HPP

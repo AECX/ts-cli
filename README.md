@@ -118,7 +118,7 @@ $XDG_CONFIG_HOME/ts-cli/    (~/.config/ts-cli/ if unset)
 └── users/          # per-remote-user local settings, keyed by stable identity
 ```
 
-See [Configuration and identity](docs/client/configuration.md) for the full layout, file formats, and migration behavior.
+See [Configuration and identity](docs/client/configuration.md) for the full layout and file formats.
 
 ---
 
@@ -174,7 +174,8 @@ For protocol and architecture details, see the documentation under [`docs/`](doc
 ```text
 ts-cli/
 ├── audio/       # PipeWire/WASAPI, Opus, filters, jitter, mixing and audio worker
-├── client/      # CLI, configuration, persistence and runtime integration
+├── client/      # CLI and runtime integration
+├── config/      # configuration, identity and per-user settings
 ├── docs/        # architecture and protocol documentation
 ├── log/         # logging
 ├── net/         # networking

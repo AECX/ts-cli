@@ -1,6 +1,6 @@
 #include <charconv>
-#include <client/config/identity_store.hpp>
-#include <client/platform/secure_file.hpp>
+#include <config/identity_store.hpp>
+#include <config/platform/secure_file.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -13,7 +13,7 @@
 #include <string_view>
 #include <vector>
 
-namespace ts::client {
+namespace ts::config {
 
     namespace {
 
@@ -103,40 +103,12 @@ namespace ts::client {
             throw std::runtime_error( "Identity file is incomplete" );
         }
 
-        protocol::Identity identity = DecodeLegacyIdentity( privateKey );
+        protocol::Identity identity = DecodeIdentity( privateKey );
         if ( !protocol::HashCash::ValidateOffset( identity.PublicKey(), *securityLevel, *keyOffset ) ) {
             throw std::runtime_error( "Identity key offset is invalid" );
         }
 
         return LocalIdentity { .identity = std::move( identity ), .securityLevel = *securityLevel, .keyOffset = *keyOffset };
-    }
-
-    LocalIdentity IdentityStore::LoadOrMigrate( const std::filesystem::path& path, const LegacyIdentityConfig& legacy ) {
-        if ( std::filesystem::exists( path ) ) {
-            return Load( path );
-        }
-
-        if ( legacy.encodedPrivateKey.empty() ) {
-            throw std::runtime_error( "Cannot migrate an empty TeamSpeak identity" );
-        }
-        if ( legacy.securityLevel > 32 ) {
-            throw std::runtime_error( "Identity security level is too large" );
-        }
-
-        protocol::Identity identity = DecodeLegacyIdentity( legacy.encodedPrivateKey );
-        std::uint64_t keyOffset = 0;
-        if ( legacy.keyOffset &&
-             protocol::HashCash::ValidateOffset( identity.PublicKey(), legacy.securityLevel, *legacy.keyOffset ) ) {
-            keyOffset = *legacy.keyOffset;
-        } else {
-            keyOffset = protocol::HashCash::FindOffset( identity.PublicKey(), legacy.securityLevel );
-        }
-
-        LocalIdentity result { .identity = std::move( identity ),
-                               .securityLevel = legacy.securityLevel,
-                               .keyOffset = keyOffset };
-        Save( path, result );
-        return result;
     }
 
     void IdentityStore::Save( const std::filesystem::path& path, const LocalIdentity& identity ) {
@@ -157,7 +129,7 @@ namespace ts::client {
         platform::WriteSecureFile( path, stream.str() );
     }
 
-    protocol::Identity IdentityStore::DecodeLegacyIdentity( const std::string& encodedPrivateKey ) {
+    protocol::Identity IdentityStore::DecodeIdentity( const std::string& encodedPrivateKey ) {
         if ( encodedPrivateKey.empty() ) {
             throw std::runtime_error( "Identity private key is empty" );
         }
@@ -175,4 +147,4 @@ namespace ts::client {
         return protocol::Base64Encode( std::as_bytes( characters ) );
     }
 
-} // namespace ts::client
+} // namespace ts::config

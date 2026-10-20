@@ -1,6 +1,7 @@
 #include <cctype>
 #include <charconv>
-#include <client/config/setup.hpp>
+#include <config/identity_store.hpp>
+#include <config/setup.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -13,7 +14,7 @@
 #include <system_error>
 #include <utility>
 
-namespace ts::client {
+namespace ts::config {
 
     Config ConfigSetup::Run( const std::filesystem::path& configPath, const std::filesystem::path& identityPath ) {
         return Run( configPath, identityPath, std::cin, std::cout );
@@ -264,4 +265,4 @@ namespace ts::client {
         return result;
     }
 
-} // namespace ts::client
+} // namespace ts::config

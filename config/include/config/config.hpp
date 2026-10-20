@@ -1,8 +1,7 @@
-#ifndef TS_CLIENT_CONFIG_CONFIG_HPP
-#define TS_CLIENT_CONFIG_CONFIG_HPP
+#ifndef TS_CONFIG_CONFIG_HPP
+#define TS_CONFIG_CONFIG_HPP
 
 #include <audio/audio_types.hpp>
-#include <client/config/identity_store.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -11,7 +10,11 @@
 #include <string>
 #include <string_view>
 
-namespace ts::client {
+namespace ts::config {
+
+    class Config;
+
+    using ConfigMutator = std::function<void( Config& )>;
 
     class Config {
       public:
@@ -22,18 +25,16 @@ namespace ts::client {
         void Save( const std::filesystem::path& path );
         void Save();
 
+        /* Applies mutator to this config, then saves it to the bound path. */
+        void Update( const ConfigMutator& mutator );
+
         [[nodiscard]] protocol::ClientProfile Profile() const;
         [[nodiscard]] audio::AudioSettings AudioSettings() const;
         void SetAudioSettings( const audio::AudioSettings& settings );
         void SetNickname( std::string nickname );
 
-        [[nodiscard]] bool NeedsSave() const;
-        [[nodiscard]] bool HasLegacyIdentity() const;
-        [[nodiscard]] LegacyIdentityConfig LegacyIdentity() const;
-        void ClearLegacyIdentity();
-
       private:
-        [[nodiscard]] static Config Parse( std::string_view data, bool& migrated );
+        [[nodiscard]] static Config Parse( std::string_view data );
         [[nodiscard]] static std::uint64_t ParseUnsigned( std::string_view value, std::string_view name );
         [[nodiscard]] static float ParseFloat( std::string_view value, std::string_view name );
         [[nodiscard]] static std::string_view Trim( std::string_view value );
@@ -45,14 +46,9 @@ namespace ts::client {
         std::string m_ClientVersionSignature;
         audio::AudioSettings m_AudioSettings;
 
-        bool m_NeedsSave = false;
-        bool m_HasLegacyIdentity = false;
-        LegacyIdentityConfig m_LegacyIdentity;
         std::optional<std::filesystem::path> m_Path;
     };
 
-    using ConfigMutator = std::function<void( Config& )>;
+} // namespace ts::config
 
-} // namespace ts::client
-
-#endif // TS_CLIENT_CONFIG_CONFIG_HPP
+#endif // TS_CONFIG_CONFIG_HPP

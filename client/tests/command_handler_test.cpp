@@ -86,7 +86,7 @@ namespace ts::client::test {
             ActionQueue actionQueue;
             audio::AudioEngine audio;
             bool persisted = false;
-            Config scratch = Config::Create( Config::DefaultProfile() );
+            config::Config scratch = config::Config::Create( config::Config::DefaultProfile() );
 
             cli::CommandHandler handler(
                 actionQueue,
@@ -94,7 +94,7 @@ namespace ts::client::test {
                 [&]( ts::audio::NotificationType ) {
                 },
                 &audio,
-                [&persisted, &scratch]( const ConfigMutator& mutator ) {
+                [&persisted, &scratch]( const config::ConfigMutator& mutator ) {
                     persisted = true;
                     mutator( scratch );
                 } );
@@ -109,7 +109,7 @@ namespace ts::client::test {
             cli::Presentation presentation( output, false, [&]( ts::audio::NotificationType ) {
             } );
             ActionQueue actionQueue;
-            Config scratch = Config::Create( Config::DefaultProfile() );
+            config::Config scratch = config::Config::Create( config::Config::DefaultProfile() );
 
             cli::CommandHandler handler(
                 actionQueue,
@@ -117,7 +117,7 @@ namespace ts::client::test {
                 [&]( ts::audio::NotificationType ) {
                 },
                 nullptr,
-                [&scratch]( const ConfigMutator& mutator ) {
+                [&scratch]( const config::ConfigMutator& mutator ) {
                     mutator( scratch );
                 } );
 
@@ -138,9 +138,9 @@ namespace ts::client::test {
                 [&]( ts::audio::NotificationType ) {
                 },
                 nullptr,
-                [&called]( const ConfigMutator& mutator ) {
+                [&called]( const config::ConfigMutator& mutator ) {
                     called = true;
-                    Config scratch = Config::Create( Config::DefaultProfile() );
+                    config::Config scratch = config::Config::Create( config::Config::DefaultProfile() );
                     mutator( scratch );
                 } );
 

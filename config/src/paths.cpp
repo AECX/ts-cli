@@ -1,12 +1,12 @@
-#include <client/config/paths.hpp>
-#include <client/platform/paths.hpp>
-#include <client/platform/secure_file.hpp>
+#include <config/paths.hpp>
+#include <config/platform/paths.hpp>
+#include <config/platform/secure_file.hpp>
 #include <filesystem>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
 
-namespace ts::client {
+namespace ts::config {
 
     Paths::Paths( std::filesystem::path configDirectory ): m_ConfigDirectory( std::move( configDirectory ) ) {
     }
@@ -60,4 +60,4 @@ namespace ts::client {
         platform::SecureDirectory( path );
     }
 
-} // namespace ts::client
+} // namespace ts::config

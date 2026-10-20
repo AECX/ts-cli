@@ -3,16 +3,17 @@
 #include <client/cli/channel_tree_view.hpp>
 #include <client/cli/command_handler.hpp>
 #include <client/cli/presentation.hpp>
-#include <client/config/config.hpp>
-#include <client/config/identity_store.hpp>
-#include <client/config/paths.hpp>
-#include <client/config/setup.hpp>
-#include <client/config/user_config.hpp>
 #include <client/platform/console_io.hpp>
 #include <client/runtime/action_queue.hpp>
 #include <client/runtime/event.hpp>
 #include <client/runtime/event_queue.hpp>
 #include <client/runtime/network_runtime.hpp>
+#include <config/audio_settings.hpp>
+#include <config/config.hpp>
+#include <config/identity_store.hpp>
+#include <config/paths.hpp>
+#include <config/setup.hpp>
+#include <config/user_config.hpp>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -24,6 +25,7 @@
 #include <protocol/protocol.hpp>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -72,35 +74,17 @@ int main( int argc, char* argv[] ) {
     logger.Info( "client", "starting ts-cli" );
 
     try {
-        const ts::client::Paths paths = ts::client::Paths::Discover();
+        const ts::config::Paths paths = ts::config::Paths::Discover();
         paths.EnsureDirectories();
 
         const std::filesystem::path configPath = paths.ConfigFile();
         const std::filesystem::path identityPath = paths.IdentityFile();
 
-        ts::client::Config config = std::filesystem::exists( configPath )
-                                        ? ts::client::Config::Load( configPath )
-                                        : ts::client::ConfigSetup::Run( configPath, identityPath );
+        ts::config::Config config = std::filesystem::exists( configPath )
+                                        ? ts::config::Config::Load( configPath )
+                                        : ts::config::ConfigSetup::Run( configPath, identityPath );
 
-        const bool hadLegacyIdentity = config.HasLegacyIdentity();
-        ts::client::LocalIdentity localIdentity = [&] {
-            if ( std::filesystem::exists( identityPath ) ) {
-                return ts::client::IdentityStore::Load( identityPath );
-            }
-            if ( hadLegacyIdentity ) {
-                return ts::client::IdentityStore::LoadOrMigrate( identityPath, config.LegacyIdentity() );
-            }
-
-            throw std::runtime_error( "TeamSpeak identity file is missing: " + identityPath.string() );
-        }();
-
-        if ( hadLegacyIdentity ) {
-            config.ClearLegacyIdentity();
-        }
-
-        if ( config.NeedsSave() ) {
-            config.Save( configPath );
-        }
+        ts::config::LocalIdentity localIdentity = ts::config::IdentityStore::Load( identityPath );
 
         ts::protocol::ClientProfile profile = config.Profile();
         ts::protocol::Identity identity = std::move( localIdentity.identity );
@@ -148,40 +132,19 @@ int main( int argc, char* argv[] ) {
         presentation.SetCurrentChannel( CurrentChannelName( connection ) );
         presentation.SetCurrentNickname( connection.CurrentNickname() );
 
-        const ts::audio::AudioSettings configuredAudio = config.AudioSettings();
-        audio.SetActivationThresholdDb( configuredAudio.activationThresholdDb );
-
-        if ( audio.Status().available ) {
-            const auto applyAudioSetting = [&logger]( std::string_view name, const auto& apply ) {
-                try {
-                    apply();
-                } catch ( const std::exception& exception ) {
-                    logger.Warning( "audio",
-                                    std::string( "could not apply saved " ) + std::string( name ) + ": " + exception.what() );
-                }
-            };
-
-            applyAudioSetting( "input device", [&audio, &configuredAudio] {
-                audio.SetInputDevice( configuredAudio.input );
-            } );
-            applyAudioSetting( "output device", [&audio, &configuredAudio] {
-                audio.SetOutputDevice( configuredAudio.output );
-            } );
-            applyAudioSetting( "capture filter", [&audio, &configuredAudio] {
-                audio.SetCaptureFilter( configuredAudio.captureFilter );
-            } );
-        }
+        ts::config::ApplyAudioSettings( audio, config.AudioSettings(), [&logger]( std::string_view message ) {
+            logger.Warning( "audio", std::string( message ) );
+        } );
 
         ts::client::cli::CommandHandler commandHandler( actionQueue,
                                                         presentation,
                                                         notifyCallback,
                                                         &audio,
-                                                        [&config]( const ts::client::ConfigMutator& mutator ) {
-                                                            mutator( config );
-                                                            config.Save();
+                                                        [&config]( const ts::config::ConfigMutator& mutator ) {
+                                                            config.Update( mutator );
                                                         } );
 
-        ts::client::UserConfigStore userConfigStore( paths.UsersDirectory() );
+        ts::config::UserConfigStore userConfigStore( paths.UsersDirectory() );
         ts::client::NetworkRuntime runtime( connection, actionQueue, eventQueue, audio, userConfigStore );
 
         logger.Info( "connection", "session loop running" );

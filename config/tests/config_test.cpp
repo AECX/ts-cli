@@ -1,24 +1,22 @@
 #include "test_support.hpp"
 
 #include <audio/audio_types.hpp>
-#include <client/config/config.hpp>
-#include <client/config/identity_store.hpp>
-#include <client/config/paths.hpp>
+#include <config/config.hpp>
+#include <config/identity_store.hpp>
+#include <config/paths.hpp>
 #include <filesystem>
 #include <fstream>
-#include <protocol/crypto/hash_cash.hpp>
-#include <protocol/encoding/base64.hpp>
 #include <protocol/identity.hpp>
-#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
 
-namespace ts::client::test {
+namespace ts::config::test {
 
     namespace {
 
@@ -51,11 +49,6 @@ namespace ts::client::test {
             std::ostringstream result;
             result << stream.rdbuf();
             return result.str();
-        }
-
-        [[nodiscard]] std::string EncodeIdentity( const protocol::Identity& identity ) {
-            const std::string pem = identity.PrivateKeyPem();
-            return protocol::Base64Encode( std::as_bytes( std::span<const char>( pem.data(), pem.size() ) ) );
         }
 
     } // namespace
@@ -99,7 +92,7 @@ namespace ts::client::test {
                 "New config unexpectedly contains local identity offset" );
 
 #ifndef _WIN32
-        /* Raw POSIX mode bits aren't meaningful on Windows; see client/platform/secure_file.hpp. */
+        /* Raw POSIX mode bits aren't meaningful on Windows; see config/platform/secure_file.hpp. */
         struct stat configInformation {};
         Expect( ::stat( paths.ConfigFile().c_str(), &configInformation ) == 0, "Could not stat config file" );
         Expect( ( configInformation.st_mode & 0777 ) == 0600, "Config file permissions are not 0600" );
@@ -109,43 +102,12 @@ namespace ts::client::test {
         Expect( ( directoryInformation.st_mode & 0777 ) == 0700, "Config directory permissions are not 0700" );
 #endif
 
-        protocol::Identity legacyIdentity;
-        const std::vector<std::byte> legacyPublicKey = legacyIdentity.PublicKey();
-        const std::uint8_t securityLevel = 2;
-        const std::uint64_t keyOffset = protocol::HashCash::FindOffset( legacyPublicKey, securityLevel );
-        const std::string encodedIdentity = EncodeIdentity( legacyIdentity );
-
-        {
-            std::ofstream stream( paths.ConfigFile(), std::ios::trunc );
-            if ( !stream ) {
-                throw std::runtime_error( "Failed to create legacy test config" );
-            }
-            stream << "nickname=legacy" << std::endl
-                   << "version_profile=ts3-linux-3.6.2" << std::endl
-                   << "identity_security_level=" << static_cast<unsigned int>( securityLevel ) << std::endl
-                   << "identity_private_key=" << encodedIdentity << std::endl
-                   << "identity_key_offset=" << keyOffset << std::endl;
-        }
-
-        Config migrated = Config::Load( paths.ConfigFile() );
-        Expect( migrated.HasLegacyIdentity(), "Legacy config identity was not detected" );
-        Expect( migrated.NeedsSave(), "Legacy config was not marked for migration" );
-
-        const LocalIdentity migratedIdentity = IdentityStore::LoadOrMigrate( paths.IdentityFile(), migrated.LegacyIdentity() );
-        Expect( migratedIdentity.identity.PublicKey() == legacyPublicKey, "Migrated local identity changed" );
-        ExpectEqual( migratedIdentity.securityLevel, securityLevel, "Migrated identity security level changed" );
-        ExpectEqual( migratedIdentity.keyOffset, keyOffset, "Migrated identity key offset changed" );
-
-        migrated.ClearLegacyIdentity();
-        migrated.Save( paths.ConfigFile() );
-        const std::string migratedConfig = ReadFile( paths.ConfigFile() );
-        Expect( migratedConfig.find( "identity_private_key=" ) == std::string::npos,
-                "Legacy private key remained in config after migration" );
-        Expect( migratedConfig.find( "identity_security_level=" ) == std::string::npos,
-                "Legacy identity security level remained in config after migration" );
-        Expect( migratedConfig.find( "identity_key_offset=" ) == std::string::npos,
-                "Legacy identity offset remained in config after migration" );
-        Expect( std::filesystem::exists( paths.IdentityFile() ), "Identity migration did not create identity file" );
+        const LocalIdentity localIdentity = IdentityStore::Create( protocol::Identity {}, 2 );
+        IdentityStore::Save( paths.IdentityFile(), localIdentity );
+        const LocalIdentity loadedIdentity = IdentityStore::Load( paths.IdentityFile() );
+        Expect( loadedIdentity.identity.PublicKey() == localIdentity.identity.PublicKey(), "Saved local identity changed" );
+        ExpectEqual( loadedIdentity.securityLevel, localIdentity.securityLevel, "Saved identity security level changed" );
+        ExpectEqual( loadedIdentity.keyOffset, localIdentity.keyOffset, "Saved identity key offset changed" );
 
 #ifndef _WIN32
         struct stat identityInformation {};
@@ -153,14 +115,57 @@ namespace ts::client::test {
         Expect( ( identityInformation.st_mode & 0777 ) == 0600, "Identity file permissions are not 0600" );
 #endif
 
-        migrated.SetNickname( "newnick" );
-        migrated.Save();
+        {
+            std::ofstream stream( paths.ConfigFile(), std::ios::trunc );
+            if ( !stream ) {
+                throw std::runtime_error( "Failed to create minimal test config" );
+            }
+            stream << "nickname=minimal" << std::endl;
+        }
+
+        Config minimal = Config::Load( paths.ConfigFile() );
+        ExpectEqual( minimal.Profile().nickname, std::string( "minimal" ), "Minimal config nickname changed" );
+        ExpectEqual( minimal.Profile().version.version,
+                     Config::DefaultProfile().version.version,
+                     "Minimal config did not fall back to the default client version" );
+        ExpectEqual( minimal.AudioSettings().captureFilter,
+                     std::string( "none" ),
+                     "Minimal config did not fall back to default audio settings" );
+
+        for ( const std::string_view removedKey :
+              { "version_profile", "identity_security_level", "identity_private_key", "identity_key_offset" } ) {
+            {
+                std::ofstream stream( paths.ConfigFile(), std::ios::trunc );
+                if ( !stream ) {
+                    throw std::runtime_error( "Failed to create removed-key test config" );
+                }
+                stream << "nickname=removed" << std::endl << removedKey << "=1" << std::endl;
+            }
+
+            bool rejected = false;
+            try {
+                (void)Config::Load( paths.ConfigFile() );
+            } catch ( const std::runtime_error& ) {
+                rejected = true;
+            }
+            Expect( rejected, "Config accepted removed key " + std::string( removedKey ) );
+        }
+
+        minimal.SetNickname( "newnick" );
+        minimal.Save();
         const Config reloadedAfterBoundSave = Config::Load( paths.ConfigFile() );
         ExpectEqual( reloadedAfterBoundSave.Profile().nickname, std::string( "newnick" ), "Bound-path Save() did not persist" );
 
+        minimal.Update( []( Config& config ) {
+            config.SetNickname( "updated" );
+        } );
+        ExpectEqual( Config::Load( paths.ConfigFile() ).Profile().nickname,
+                     std::string( "updated" ),
+                     "Update() did not persist the mutation" );
+
         bool rejectedEmptyNickname = false;
         try {
-            migrated.SetNickname( "" );
+            minimal.SetNickname( "" );
         } catch ( const std::runtime_error& ) {
             rejectedEmptyNickname = true;
         }
@@ -176,4 +181,4 @@ namespace ts::client::test {
         Expect( rejectedUnboundSave, "Save() on a Config with no bound path did not throw" );
     }
 
-} // namespace ts::client::test
+} // namespace ts::config::test
