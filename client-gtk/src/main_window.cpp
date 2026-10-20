@@ -86,40 +86,47 @@ namespace ts::client::gtk {
         label.set_text( text );
     }
 
-    MainWindow::MainWindow( ActionQueue& actionQueue,
-                            EventQueue& eventQueue,
-                            audio::AudioEngine& audio,
-                            const config::UserConfigStore& userConfigs,
-                            cli::CommandHandler::PersistConfigCallback persistConfig ):
-        m_ActionQueue( actionQueue ), m_EventQueue( eventQueue ), m_Audio( audio ), m_UserConfigs( userConfigs ),
-        m_PersistConfig( persistConfig ), m_Commands(
-                                              actionQueue,
-                                              *this,
-                                              [this]( audio::NotificationType type ) {
-                                                  Notify( type );
-                                              },
-                                              &audio,
-                                              std::move( persistConfig ) ),
-        m_AudioSettings( audio, [this] {
-            PersistAudioSettings();
-        } ) {
+    MainWindow::MainWindow( audio::AudioEngine& audio,
+                            config::Config& config,
+                            const config::Paths& paths,
+                            config::UserConfigStore& userConfigs,
+                            NetworkWake& wake ):
+        m_Audio( audio ), m_Config( config ), m_Paths( paths ), m_UserConfigs( userConfigs ), m_Wake( wake ),
+        m_Options(
+            audio,
+            config,
+            paths.IdentityFile(),
+            [this] {
+                PersistAudioSettings();
+            },
+            [this]( const std::string& nickname ) {
+                if ( m_State != ConnectionState::Connected ) {
+                    return false;
+                }
+
+                /* Like /nick; a rejected name is reported in the feed. */
+                m_Session->Actions().Push( ChangeNicknameAction { .nickname = nickname } );
+                return true;
+            } ) {
         set_title( "ts-gtk" );
-        set_default_size( 520, 760 );
+        set_default_size( 700, 760 );
 
         /* Closing ends the session through on_hide() and the application's hide handler; GTK would destroy it instead. */
         set_hide_on_close( true );
 
-        m_Status.set_ellipsize( Pango::EllipsizeMode::END );
-        m_Status.set_xalign( 1.0F );
-        m_Status.set_hexpand( true );
-
-        m_AudioBar.append( m_Microphone.button );
-        m_AudioBar.append( m_Speakers.button );
-        m_AudioSettingsButton.set_label( "Options" );
-        m_AudioSettingsButton.set_tooltip_text( "Audio settings: devices, RNNoise, activation threshold, microphone test" );
-        m_AudioBar.append( m_AudioSettingsButton );
-        m_AudioSettings.set_transient_for( *this );
-        m_AudioBar.append( m_Status );
+        m_TopBar.append( m_Microphone.button );
+        m_TopBar.append( m_Speakers.button );
+        m_OptionsButton.set_tooltip_text(
+            "Audio devices, RNNoise, activation threshold, microphone test, nickname and identity" );
+        m_TopBar.append( m_OptionsButton );
+        m_Options.set_transient_for( *this );
+        m_Server.set_hexpand( true );
+        m_Server.set_width_chars( 18 );
+        m_Server.set_placeholder_text( "Server address" );
+        m_Server.set_tooltip_text( "host, host:port or IP address of the server, e.g. voice.example.net:9987" );
+        m_Server.set_text( DisplayText( config.LastServer() ) );
+        m_TopBar.append( m_Server );
+        m_TopBar.append( m_ConnectButton );
 
         m_TreeScroll.set_policy( Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC );
         m_TreeScroll.set_has_frame( true );
@@ -139,19 +146,23 @@ namespace ts::client::gtk {
         m_Split.set_vexpand( true );
 
         m_Layout.set_margin( 6 );
-        m_Layout.append( m_AudioBar );
+        m_Layout.append( m_TopBar );
         m_Layout.append( m_Split );
         m_Layout.append( m_Input );
         set_child( m_Layout );
 
         m_Microphone.button.signal_toggled().connect( sigc::mem_fun( *this, &MainWindow::MicrophoneToggled ) );
         m_Speakers.button.signal_toggled().connect( sigc::mem_fun( *this, &MainWindow::SpeakersToggled ) );
-        m_AudioSettingsButton.signal_clicked().connect( [this] {
-            m_AudioSettings.present();
+        m_OptionsButton.signal_clicked().connect( [this] {
+            m_Options.present();
             SyncAudioControls();
         } );
+        m_Server.signal_activate().connect( sigc::mem_fun( *this, &MainWindow::ConnectClicked ) );
+        m_ConnectButton.signal_clicked().connect( sigc::mem_fun( *this, &MainWindow::ConnectClicked ) );
         m_UserAudio.OnChanged( [this]( std::uint16_t clientId, const config::UserConfig& settings ) {
-            m_ActionQueue.Push( SetUserAudioAction { .clientId = clientId, .settings = settings } );
+            if ( m_State == ConnectionState::Connected ) {
+                m_Session->Actions().Push( SetUserAudioAction { .clientId = clientId, .settings = settings } );
+            }
         } );
         m_Input.signal_activate().connect( sigc::mem_fun( *this, &MainWindow::SubmitInput ) );
 
@@ -166,22 +177,78 @@ namespace ts::client::gtk {
             ShowUserAudio( key, area );
         } );
 
-        SyncAudioControls();
+        SetConnectionState( ConnectionState::Disconnected );
         SelectConversation( ServerConversation() );
-        PrintInfo( "Type /help for commands" );
 
         m_Ticker = Glib::signal_timeout().connect( sigc::mem_fun( *this, &MainWindow::Tick ), TickMilliseconds );
-
-        m_Input.grab_focus();
     }
 
     MainWindow::~MainWindow() {
         m_Ticker.disconnect();
     }
 
+    void MainWindow::Connect( const std::string& endpoint ) {
+        if ( m_Session ) {
+            return;
+        }
+
+        m_Server.set_text( DisplayText( endpoint ) );
+
+        if ( endpoint.empty() ) {
+            PrintError( "Enter the address of the server to connect to" );
+            return;
+        }
+
+        /* A new server: conversations, unread counts and the tree start over. */
+        m_Log = ConversationLog {};
+        m_Snapshot = ServerSnapshot {};
+        m_UserSelected = false;
+        m_Tree.Clear();
+        SelectConversation( ServerConversation() );
+
+        try {
+            config::LocalIdentity identity = config::IdentityStore::Load( m_Paths.IdentityFile() );
+            m_Session = std::make_unique<Session>( protocol::ConnectionOptions { .endpoint = endpoint,
+                                                                                 .profile = m_Config.Profile(),
+                                                                                 .identity = std::move( identity.identity ),
+                                                                                 .identityKeyOffset = identity.keyOffset },
+                                                   m_Audio,
+                                                   m_UserConfigs,
+                                                   m_Wake );
+        } catch ( const std::exception& exception ) {
+            PrintError( "Could not connect: " + std::string( exception.what() ) );
+            return;
+        }
+
+        m_Endpoint = endpoint;
+        SetConnectionState( ConnectionState::Connecting );
+        PrintInfo( "Connecting to " + endpoint + "..." );
+    }
+
+    void MainWindow::Shutdown() {
+        m_Ticker.disconnect();
+
+        if ( !m_Session ) {
+            return;
+        }
+
+        m_Session->RequestStop();
+
+        if ( m_Commands ) {
+            try {
+                m_Session->Join();
+            } catch ( const std::exception& ) {
+                /* Exiting anyway. */
+            }
+        }
+
+        m_Commands.reset();
+        m_Session.reset();
+    }
+
     void MainWindow::on_hide() {
-        /* Restores the microphone state the settings window muted, before the session ends. */
-        m_AudioSettings.set_visible( false );
+        /* Restores the microphone state the options muted, before the session ends. */
+        m_Options.set_visible( false );
         Gtk::Window::on_hide();
     }
 
@@ -208,10 +275,59 @@ namespace ts::client::gtk {
     }
 
     bool MainWindow::Tick() {
+        PollSession();
+
+        if ( m_TreeDirty && m_State == ConnectionState::Connected ) {
+            m_TreeDirty = false;
+            m_Tree.Update( m_Snapshot, m_Log );
+            UpdateTitles();
+        }
+
+        SyncAudioControls();
+        return true;
+    }
+
+    void MainWindow::PollSession() {
+        if ( !m_Session ) {
+            return;
+        }
+
+        if ( !m_Commands ) {
+            switch ( m_Session->Poll() ) {
+                case Session::State::Connecting:
+                    return;
+
+                case Session::State::Connected:
+                    SessionStarted();
+                    break;
+
+                case Session::State::Failed:
+                    if ( m_State == ConnectionState::Disconnecting ) {
+                        PrintInfo( "Connecting cancelled" );
+                    } else {
+                        PrintError( "Could not connect to " + m_Endpoint + ": " + m_Session->Error() );
+                    }
+
+                    m_Session.reset();
+                    SetConnectionState( ConnectionState::Disconnected );
+                    return;
+            }
+        }
+
+        DrainEvents();
+
+        if ( m_Session->Ended() ) {
+            /* The runtime may have queued its last events after the drain above. */
+            DrainEvents();
+            EndSession();
+        }
+    }
+
+    void MainWindow::DrainEvents() {
         RuntimeEvent event;
 
-        while ( m_EventQueue.WaitPop( event, std::chrono::milliseconds( 0 ) ) ) {
-            m_Commands.Observe( event );
+        while ( m_Session->Events().WaitPop( event, std::chrono::milliseconds( 0 ) ) ) {
+            m_Commands->Observe( event );
 
             if ( auto* snapshot = std::get_if<ServerSnapshotEvent>( &event ); snapshot != nullptr ) {
                 m_Snapshot = std::move( snapshot->snapshot );
@@ -238,34 +354,137 @@ namespace ts::client::gtk {
                 Notify( *routed.notification );
             }
         }
-
-        if ( m_TreeDirty ) {
-            m_TreeDirty = false;
-            m_Tree.Update( m_Snapshot, m_Log );
-            UpdateTitles();
-        }
-
-        SyncAudioControls();
-
-        if ( m_EventQueue.Closed() ) {
-            SessionEnded();
-            return false;
-        }
-
-        return true;
     }
 
-    void MainWindow::SessionEnded() {
-        m_SessionEnded = true;
-        m_Input.set_sensitive( false );
-        m_Microphone.button.set_sensitive( false );
-        m_Speakers.button.set_sensitive( false );
-        m_AudioSettingsButton.set_sensitive( false );
-        m_AudioSettings.set_visible( false );
+    void MainWindow::SessionStarted() {
+        m_Commands.emplace(
+            m_Session->Actions(),
+            *this,
+            [this]( audio::NotificationType type ) {
+                Notify( type );
+            },
+            &m_Audio,
+            [this]( const config::ConfigMutator& mutator ) {
+                m_Config.Update( mutator );
+            } );
+
+        /* Cancelled while the connection was being established. */
+        const bool cancelled = m_State == ConnectionState::Disconnecting;
+        SetConnectionState( ConnectionState::Connected );
+
+        if ( cancelled ) {
+            m_Session->RequestStop();
+            SetConnectionState( ConnectionState::Disconnecting );
+            return;
+        }
+
+        try {
+            m_Config.Update( [this]( config::Config& config ) {
+                config.SetLastServer( m_Endpoint );
+            } );
+        } catch ( const std::exception& exception ) {
+            PrintError( std::string( "could not remember the server: " ) + exception.what() );
+        }
+
+        PrintInfo( "Connected. Type /help for commands" );
+        m_Input.grab_focus();
+    }
+
+    void MainWindow::EndSession() {
+        try {
+            m_Session->Join();
+        } catch ( const std::exception& exception ) {
+            PrintError( exception.what() );
+        }
+
+        m_Commands.reset();
+        m_Session.reset();
+
+        try {
+            /* Every session starts muted, like ts-cli. */
+            m_Audio.SetTransmitEnabled( false );
+        } catch ( const std::exception& ) {
+            /* Audio is unavailable; nothing is transmitted either way. */
+        }
+
+        if ( m_State == ConnectionState::Disconnecting ) {
+            /* The runtime only reports disconnects the user did not ask for. */
+            PrintInfo( "Disconnected" );
+        }
+
+        /* The last snapshot stays for the conversation titles until the next connect. */
         m_UserAudio.popdown();
-        m_Tree.SetTalking( {} );
-        m_Status.set_text( "Disconnected" );
-        set_title( "ts-gtk (disconnected)" );
+        m_Tree.Clear();
+        SetConnectionState( ConnectionState::Disconnected );
+    }
+
+    void MainWindow::ConnectClicked() {
+        switch ( m_State ) {
+            case ConnectionState::Disconnected:
+                Connect( m_Server.get_text() );
+                break;
+
+            case ConnectionState::Connecting:
+                /* Takes until the attempt gives up; connecting can't be interrupted. */
+                m_Session->RequestStop();
+                SetConnectionState( ConnectionState::Disconnecting );
+                m_ConnectButton.set_label( "Cancelling..." );
+                break;
+
+            case ConnectionState::Connected:
+                m_Session->RequestStop();
+                SetConnectionState( ConnectionState::Disconnecting );
+                break;
+
+            case ConnectionState::Disconnecting:
+                break;
+        }
+    }
+
+    void MainWindow::SetConnectionState( ConnectionState state ) {
+        m_State = state;
+
+        const bool disconnected = state == ConnectionState::Disconnected;
+
+        /* GTK expects focus to leave an entry (its inner text widget, really) before it is disabled. */
+        if ( const Gtk::Widget* focus = get_focus(); focus != nullptr ) {
+            if ( ( !disconnected && focus->is_ancestor( m_Server ) ) ||
+                 ( state != ConnectionState::Connected && focus->is_ancestor( m_Input ) ) ) {
+                unset_focus();
+            }
+        }
+
+        m_Server.set_sensitive( disconnected );
+        m_Input.set_sensitive( state == ConnectionState::Connected );
+        m_ConnectButton.set_sensitive( state != ConnectionState::Disconnecting );
+        m_ConnectButton.remove_css_class( "suggested-action" );
+        m_ConnectButton.remove_css_class( "destructive-action" );
+
+        switch ( state ) {
+            case ConnectionState::Disconnected:
+                m_ConnectButton.set_label( "Connect" );
+                m_ConnectButton.add_css_class( "suggested-action" );
+                m_Server.grab_focus();
+                set_title( "ts-gtk" );
+                break;
+
+            case ConnectionState::Connecting:
+                m_ConnectButton.set_label( "Cancel" );
+                set_title( DisplayText( "ts-gtk: connecting to " + m_Endpoint ) );
+                break;
+
+            case ConnectionState::Connected:
+                m_ConnectButton.set_label( "Disconnect" );
+                m_ConnectButton.add_css_class( "destructive-action" );
+                break;
+
+            case ConnectionState::Disconnecting:
+                m_ConnectButton.set_label( "Disconnecting..." );
+                break;
+        }
+
+        UpdateTitles();
+        SyncAudioControls();
     }
 
     void MainWindow::AppendLine( std::optional<ConversationKey> conversation, FeedLine line ) {
@@ -290,15 +509,16 @@ namespace ts::client::gtk {
     }
 
     void MainWindow::JoinChannel( const ConversationKey& key ) {
-        if ( key.kind != ConversationKind::Channel || key.id == m_Snapshot.currentChannelId || m_SessionEnded ) {
+        if ( key.kind != ConversationKind::Channel || key.id == m_Snapshot.currentChannelId ||
+             m_State != ConnectionState::Connected ) {
             return;
         }
 
-        m_ActionQueue.Push( MoveToChannelAction { .channelId = key.id } );
+        m_Session->Actions().Push( MoveToChannelAction { .channelId = key.id } );
     }
 
     void MainWindow::ShowUserAudio( const ConversationKey& key, const Gdk::Rectangle& area ) {
-        if ( key.kind != ConversationKind::Client || key.id == m_Snapshot.clientId || m_SessionEnded ) {
+        if ( key.kind != ConversationKind::Client || key.id == m_Snapshot.clientId || m_State != ConnectionState::Connected ) {
             return;
         }
 
@@ -323,18 +543,16 @@ namespace ts::client::gtk {
     void MainWindow::UpdateTitles() {
         const std::string title = ConversationTitle( m_Log.Active() );
         m_ConversationTitle.set_markup( "<b>" + DisplayMarkup( title ) + "</b>" );
-        m_Input.set_placeholder_text( DisplayText( "Message " + title + " (/help for commands)" ) );
+        m_Input.set_placeholder_text( m_State == ConnectionState::Connected
+                                          ? DisplayText( "Message " + title + " (/help for commands)" )
+                                          : Glib::ustring( "Not connected" ) );
 
         const protocol::Client* self = FindClient( m_Snapshot, m_Snapshot.clientId );
         std::string status = self == nullptr ? std::string {} : self->nickname;
 
-        if ( !m_Snapshot.serverName.empty() ) {
+        if ( m_State == ConnectionState::Connected && !m_Snapshot.serverName.empty() ) {
             status += status.empty() ? m_Snapshot.serverName : " @ " + m_Snapshot.serverName;
-            set_title( DisplayText( "ts-gtk: " + m_Snapshot.serverName ) );
-        }
-
-        if ( !m_SessionEnded ) {
-            m_Status.set_text( DisplayText( status ) );
+            set_title( DisplayText( "ts-gtk: " + status ) );
         }
     }
 
@@ -371,14 +589,14 @@ namespace ts::client::gtk {
     void MainWindow::SubmitInput() {
         const std::string text = m_Input.get_text();
 
-        if ( text.empty() || m_SessionEnded ) {
+        if ( text.empty() || !m_Commands ) {
             return;
         }
 
         m_Input.set_text( "" );
 
         if ( text.front() == '/' ) {
-            if ( !m_Commands.HandleLine( text ) ) {
+            if ( !m_Commands->HandleLine( text ) ) {
                 close();
             }
             return;
@@ -392,7 +610,7 @@ namespace ts::client::gtk {
 
         switch ( key.kind ) {
             case ConversationKind::Server:
-                m_ActionQueue.Push( SendTextMessageAction {
+                m_Session->Actions().Push( SendTextMessageAction {
                     .target = protocol::TextMessageTarget { .mode = protocol::TextMessageTargetMode::Server, .id = 0 },
                     .text = text } );
                 break;
@@ -403,7 +621,7 @@ namespace ts::client::gtk {
                     return;
                 }
 
-                m_ActionQueue.Push( SendTextMessageAction {
+                m_Session->Actions().Push( SendTextMessageAction {
                     .target = protocol::TextMessageTarget { .mode = protocol::TextMessageTargetMode::Channel, .id = key.id },
                     .text = text } );
                 break;
@@ -419,7 +637,7 @@ namespace ts::client::gtk {
                     return;
                 }
 
-                m_ActionQueue.Push( SendTextMessageAction {
+                m_Session->Actions().Push( SendTextMessageAction {
                     .target = protocol::TextMessageTarget { .mode = protocol::TextMessageTargetMode::Private, .id = key.id },
                     .text = text } );
                 break;
@@ -427,25 +645,24 @@ namespace ts::client::gtk {
     }
 
     void MainWindow::SyncAudioControls() {
-        if ( m_SessionEnded ) {
-            return;
-        }
-
         const audio::AudioStatus status = m_Audio.Status();
         const bool microphoneMuted = !status.transmitEnabled;
-        const bool settingsOpen = m_AudioSettings.get_visible();
+        const bool settingsOpen = m_Options.get_visible();
+        const bool connected = m_State == ConnectionState::Connected;
 
         m_SyncingControls = true;
 
         m_Microphone.button.set_active( microphoneMuted );
         m_Microphone.Show( microphoneMuted ? "microphone-sensitivity-muted-symbolic" : "audio-input-microphone-symbolic",
                            microphoneMuted ? "Microphone muted" : "Microphone on" );
-        m_Microphone.button.set_sensitive( status.available && !settingsOpen );
+        m_Microphone.button.set_sensitive( status.available && connected && !settingsOpen );
 
         if ( !status.available ) {
             m_Microphone.button.set_tooltip_text( DisplayText( "Audio unavailable: " + status.error ) );
+        } else if ( !connected ) {
+            m_Microphone.button.set_tooltip_text( "Not connected" );
         } else if ( settingsOpen ) {
-            m_Microphone.button.set_tooltip_text( "Muted while audio settings are open" );
+            m_Microphone.button.set_tooltip_text( "Muted while the options are open" );
         } else {
             m_Microphone.button.set_tooltip_text( "Mute or unmute microphone transmission" );
         }
@@ -487,12 +704,8 @@ namespace ts::client::gtk {
     }
 
     void MainWindow::PersistAudioSettings() {
-        if ( !m_PersistConfig ) {
-            return;
-        }
-
         try {
-            m_PersistConfig( [settings = m_Audio.Settings()]( config::Config& config ) {
+            m_Config.Update( [settings = m_Audio.Settings()]( config::Config& config ) {
                 config.SetAudioSettings( settings );
             } );
         } catch ( const std::exception& exception ) {

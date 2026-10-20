@@ -1,5 +1,5 @@
-#ifndef TS_CLIENT_GTK_AUDIO_SETTINGS_WINDOW_HPP
-#define TS_CLIENT_GTK_AUDIO_SETTINGS_WINDOW_HPP
+#ifndef TS_CLIENT_GTK_AUDIO_SETTINGS_PAGE_HPP
+#define TS_CLIENT_GTK_AUDIO_SETTINGS_PAGE_HPP
 
 #include <audio/audio_engine.hpp>
 #include <audio/audio_types.hpp>
@@ -14,7 +14,6 @@
 #include <gtkmm/scale.h>
 #include <gtkmm/stringlist.h>
 #include <gtkmm/togglebutton.h>
-#include <gtkmm/window.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,24 +22,26 @@ namespace ts::client::gtk {
 
     /*
      * Devices, RNNoise and the voice-activation threshold, with a live input
-     * meter and a "test microphone" loopback. While the window is shown the
-     * microphone is muted for the server (restored when it is hidden), so
-     * testing never leaks into the channel.
+     * meter and a "test microphone" loopback. Between Open() and Close() the
+     * microphone is muted for the server, so testing never leaks into the
+     * channel.
      */
-    class AudioSettingsWindow: public Gtk::Window {
+    class AudioSettingsPage: public Gtk::Box {
       public:
         /* Called after a setting that belongs in config.conf changed. */
         using ChangedHandler = std::function<void()>;
 
-        AudioSettingsWindow( audio::AudioEngine& audio, ChangedHandler onChanged );
-        ~AudioSettingsWindow() override;
+        AudioSettingsPage( audio::AudioEngine& audio, ChangedHandler onChanged );
+        ~AudioSettingsPage() override;
 
-        AudioSettingsWindow( const AudioSettingsWindow& ) = delete;
-        AudioSettingsWindow& operator=( const AudioSettingsWindow& ) = delete;
+        AudioSettingsPage( const AudioSettingsPage& ) = delete;
+        AudioSettingsPage& operator=( const AudioSettingsPage& ) = delete;
 
-      protected:
-        void on_show() override;
-        void on_hide() override;
+        /* Mutes transmission, refreshes the controls and starts the meter. */
+        void Open();
+
+        /* Stops the meter and test loopback and restores transmission. */
+        void Close();
 
       private:
         /* A device drop-down: shows descriptions, selects by device name. */
@@ -67,7 +68,6 @@ namespace ts::client::gtk {
         bool m_Populating = false;
         sigc::connection m_MeterTimer;
 
-        Gtk::Box m_Layout { Gtk::Orientation::VERTICAL, 10 };
         Gtk::Grid m_Grid;
         Gtk::Label m_InputLabel { "Microphone" };
         DeviceChoice m_Input;
@@ -84,10 +84,8 @@ namespace ts::client::gtk {
         Gtk::ToggleButton m_Test { "Test microphone" };
         Gtk::Label m_Notice;
         Gtk::Label m_Error;
-        Gtk::Box m_Buttons { Gtk::Orientation::HORIZONTAL, 6 };
-        Gtk::Button m_Close { "Close" };
     };
 
 } // namespace ts::client::gtk
 
-#endif // TS_CLIENT_GTK_AUDIO_SETTINGS_WINDOW_HPP
+#endif // TS_CLIENT_GTK_AUDIO_SETTINGS_PAGE_HPP

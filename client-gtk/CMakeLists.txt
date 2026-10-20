@@ -37,12 +37,15 @@ pkg_check_modules(
 )
 
 add_executable(ts-gtk
-    src/audio_settings_window.cpp
+    src/audio_settings_page.cpp
     src/channel_tree.cpp
     src/display_text.cpp
     src/feed_view.cpp
+    src/identity_page.cpp
     src/main.cpp
     src/main_window.cpp
+    src/options_window.cpp
+    src/session.cpp
     src/user_audio_popover.cpp
 )
 

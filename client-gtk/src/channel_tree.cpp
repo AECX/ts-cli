@@ -162,6 +162,13 @@ namespace ts::client::gtk {
         m_OnContextMenu = std::move( handler );
     }
 
+    void ChannelTree::Clear() {
+        m_Updating = true;
+        m_Talking.clear();
+        m_Root->remove_all();
+        m_Updating = false;
+    }
+
     void ChannelTree::SetTalking( std::set<std::uint16_t> clientIds ) {
         m_Talking = std::move( clientIds );
         ApplyTalking( m_Root );

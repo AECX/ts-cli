@@ -80,6 +80,12 @@ namespace ts::config {
                << "audio_filter=" << m_AudioSettings.captureFilter << std::endl
                << "audio_activation_threshold_db=" << m_AudioSettings.activationThresholdDb << std::endl;
 
+        if ( !m_LastServer.empty() ) {
+            stream << std::endl
+                   << "# The server ts-gtk connected to last." << std::endl
+                   << "last_server=" << m_LastServer << std::endl;
+        }
+
         platform::WriteSecureFile( path, stream.str() );
     }
 
@@ -135,6 +141,18 @@ namespace ts::config {
         }
 
         m_Nickname = std::move( nickname );
+    }
+
+    const std::string& Config::LastServer() const {
+        return m_LastServer;
+    }
+
+    void Config::SetLastServer( std::string server ) {
+        if ( server.find_first_of( "\r\n" ) != std::string::npos ) {
+            throw std::runtime_error( "Server address cannot contain line breaks" );
+        }
+
+        m_LastServer = std::move( server );
     }
 
     Config Config::Parse( std::string_view data ) {
@@ -199,7 +217,7 @@ namespace ts::config {
 
             if ( name != "nickname" && name != "client_init_version" && name != "client_version" && name != "client_platform" &&
                  name != "client_version_sign" && name != "audio_input" && name != "audio_output" && name != "audio_filter" &&
-                 name != "audio_activation_threshold_db" ) {
+                 name != "audio_activation_threshold_db" && name != "last_server" ) {
                 throw std::runtime_error( "Unknown config key: " + std::string( name ) );
             }
 
@@ -272,6 +290,10 @@ namespace ts::config {
                  config.m_AudioSettings.activationThresholdDb > 0.0F ) {
                 throw std::runtime_error( "audio_activation_threshold_db must be between -100 and 0" );
             }
+        }
+
+        if ( const auto value = values.find( "last_server" ); value != values.end() ) {
+            config.m_LastServer = value->second;
         }
 
         return config;

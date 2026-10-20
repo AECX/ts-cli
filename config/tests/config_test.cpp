@@ -4,11 +4,14 @@
 #include <config/config.hpp>
 #include <config/identity_store.hpp>
 #include <config/paths.hpp>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <protocol/crypto/hash_cash.hpp>
 #include <protocol/identity.hpp>
 #include <sstream>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <string_view>
 
@@ -68,6 +71,7 @@ namespace ts::config::test {
         audioSettings.captureFilter = "rnnoise";
         audioSettings.activationThresholdDb = -42.5F;
         created.SetAudioSettings( audioSettings );
+        created.SetLastServer( "voice.example.net:9987" );
         created.Save( paths.ConfigFile() );
 
         const Config loaded = Config::Load( paths.ConfigFile() );
@@ -77,6 +81,8 @@ namespace ts::config::test {
         ExpectEqual( loadedProfile.version.version, profile.version.version, "Config client version changed" );
         ExpectEqual( loadedProfile.version.platform, profile.version.platform, "Config client platform changed" );
         ExpectEqual( loadedProfile.version.signature, profile.version.signature, "Config client signature changed" );
+
+        ExpectEqual( loaded.LastServer(), std::string( "voice.example.net:9987" ), "Config last server changed" );
 
         const audio::AudioSettings loadedAudio = loaded.AudioSettings();
         ExpectEqual( loadedAudio.input, audioSettings.input, "Config audio input changed" );
@@ -109,6 +115,39 @@ namespace ts::config::test {
         ExpectEqual( loadedIdentity.securityLevel, localIdentity.securityLevel, "Saved identity security level changed" );
         ExpectEqual( loadedIdentity.keyOffset, localIdentity.keyOffset, "Saved identity key offset changed" );
 
+        const std::filesystem::path exported = temporary.Path() / "exported.pem";
+        IdentityStore::ExportPem( exported, localIdentity.identity );
+        Expect( IdentityStore::ImportPem( exported ).PublicKey() == localIdentity.identity.PublicKey(),
+                "Exported identity PEM did not import as the same identity" );
+
+        LocalIdentity improved = IdentityStore::Load( paths.IdentityFile() );
+        Expect( IdentityStore::IncreaseSecurityLevel( improved, 10, std::stop_token {} ),
+                "Raising the security level did not finish" );
+        ExpectEqual( improved.securityLevel, std::uint8_t { 10 }, "Raised security level was not stored" );
+        Expect( improved.keyOffset == protocol::HashCash::FindOffset( improved.identity.PublicKey(), 10 ),
+                "Raised key offset is not the first one reaching the level" );
+        Expect( improved.identity.UniqueId() == localIdentity.identity.UniqueId(), "Raising the level changed the key" );
+
+        bool rejected = false;
+
+        try {
+            (void)IdentityStore::IncreaseSecurityLevel( improved, 10, std::stop_token {} );
+        } catch ( const std::runtime_error& ) {
+            rejected = true;
+        }
+
+        Expect( rejected, "Raising the security level to the current one was accepted" );
+
+        std::stop_source stopped;
+        stopped.request_stop();
+        LocalIdentity cancelled = IdentityStore::Load( paths.IdentityFile() );
+        Expect( !IdentityStore::IncreaseSecurityLevel( cancelled, IdentityStore::MaxSecurityLevel(), stopped.get_token() ),
+                "A stopped security level search finished" );
+        ExpectEqual( cancelled.keyOffset, localIdentity.keyOffset, "A stopped security level search changed the offset" );
+        ExpectEqual( cancelled.securityLevel,
+                     localIdentity.securityLevel,
+                     "A stopped security level search changed the level" );
+
 #ifndef _WIN32
         struct stat identityInformation {};
         Expect( ::stat( paths.IdentityFile().c_str(), &identityInformation ) == 0, "Could not stat identity file" );
@@ -131,6 +170,7 @@ namespace ts::config::test {
         ExpectEqual( minimal.AudioSettings().captureFilter,
                      std::string( "none" ),
                      "Minimal config did not fall back to default audio settings" );
+        Expect( minimal.LastServer().empty(), "Minimal config has a last server" );
 
         for ( const std::string_view removedKey :
               { "version_profile", "identity_security_level", "identity_private_key", "identity_key_offset" } ) {

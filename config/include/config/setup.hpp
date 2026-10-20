@@ -45,8 +45,6 @@ namespace ts::config {
 
         [[nodiscard]] static protocol::Identity PromptIdentity( std::istream& input, std::ostream& output );
 
-        [[nodiscard]] static protocol::Identity LoadPemIdentity( const std::filesystem::path& path );
-
         [[nodiscard]] static std::uint64_t ParseUnsigned( std::string_view value );
     };
 

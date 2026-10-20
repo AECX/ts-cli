@@ -3,12 +3,15 @@
 #include <config/platform/secure_file.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <protocol/crypto/hash_cash.hpp>
 #include <protocol/encoding/base64.hpp>
 #include <span>
 #include <sstream>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,8 +54,12 @@ namespace ts::config {
         return 8;
     }
 
+    std::uint8_t IdentityStore::MaxSecurityLevel() {
+        return 32;
+    }
+
     LocalIdentity IdentityStore::Create( protocol::Identity identity, std::uint8_t securityLevel ) {
-        if ( securityLevel > 32 ) {
+        if ( securityLevel > MaxSecurityLevel() ) {
             throw std::runtime_error( "Identity security level is too large" );
         }
 
@@ -86,7 +93,7 @@ namespace ts::config {
 
             if ( name == "security_level" ) {
                 const std::uint64_t parsed = ParseUnsigned( value, name );
-                if ( parsed > 32 ) {
+                if ( parsed > MaxSecurityLevel() ) {
                     throw std::runtime_error( "Identity security level is too large" );
                 }
                 securityLevel = static_cast<std::uint8_t>( parsed );
@@ -112,7 +119,7 @@ namespace ts::config {
     }
 
     void IdentityStore::Save( const std::filesystem::path& path, const LocalIdentity& identity ) {
-        if ( identity.securityLevel > 32 ) {
+        if ( identity.securityLevel > MaxSecurityLevel() ) {
             throw std::runtime_error( "Identity security level is too large" );
         }
         if ( !protocol::HashCash::ValidateOffset( identity.identity.PublicKey(),
@@ -145,6 +152,53 @@ namespace ts::config {
         const std::string pem = identity.PrivateKeyPem();
         const std::span<const char> characters( pem.data(), pem.size() );
         return protocol::Base64Encode( std::as_bytes( characters ) );
+    }
+
+    bool IdentityStore::IncreaseSecurityLevel( LocalIdentity& identity,
+                                               std::uint8_t targetLevel,
+                                               const std::stop_token& stop,
+                                               const protocol::HashCash::ProgressCallback& progress ) {
+        if ( targetLevel <= identity.securityLevel ) {
+            throw std::runtime_error( "The new security level must be higher than the current one (" +
+                                      std::to_string( identity.securityLevel ) + ")" );
+        }
+
+        if ( targetLevel > MaxSecurityLevel() ) {
+            throw std::runtime_error( "Identity security level is too large" );
+        }
+
+        const std::optional<std::uint64_t> keyOffset =
+            protocol::HashCash::FindOffset( identity.identity.PublicKey(), targetLevel, identity.keyOffset, stop, progress );
+
+        if ( !keyOffset ) {
+            return false;
+        }
+
+        identity.securityLevel = targetLevel;
+        identity.keyOffset = *keyOffset;
+        return true;
+    }
+
+    protocol::Identity IdentityStore::ImportPem( const std::filesystem::path& path ) {
+        std::ifstream stream( path, std::ios::binary );
+
+        if ( !stream ) {
+            throw std::runtime_error( "Failed to open PEM file: " + path.string() );
+        }
+
+        std::ostringstream data;
+
+        data << stream.rdbuf();
+
+        if ( stream.bad() ) {
+            throw std::runtime_error( "Failed to read PEM file: " + path.string() );
+        }
+
+        return protocol::Identity::FromPrivateKeyPem( data.str() );
+    }
+
+    void IdentityStore::ExportPem( const std::filesystem::path& path, const protocol::Identity& identity ) {
+        platform::WriteSecureFile( path, identity.PrivateKeyPem() );
     }
 
 } // namespace ts::config

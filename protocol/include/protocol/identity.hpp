@@ -30,6 +30,9 @@ namespace ts::protocol {
 
         [[nodiscard]] std::vector<std::byte> PublicKey() const;
 
+        /* The TeamSpeak unique ID other clients see: base64(SHA-1(base64(PublicKey()))). */
+        [[nodiscard]] std::string UniqueId() const;
+
         [[nodiscard]] std::vector<std::byte> Sign( std::span<const std::byte> data ) const;
 
       private:
