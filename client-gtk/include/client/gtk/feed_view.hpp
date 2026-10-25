@@ -3,6 +3,7 @@
 
 #include "conversation_log.hpp"
 
+#include <gtkmm/box.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/textview.h>
 #include <vector>
@@ -21,8 +22,8 @@ namespace ts::client::gtk {
         void Insert( const FeedLine& line );
         void ScrollToEnd();
 
-        Gtk::TextView m_Text;
         Glib::RefPtr<Gtk::TextBuffer::Mark> m_End;
+        Gtk::Box m_Container;
     };
 
 } // namespace ts::client::gtk
