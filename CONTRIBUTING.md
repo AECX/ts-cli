@@ -1,168 +1,110 @@
 # Contributing to ts-cli
 
-`ts-cli` is an experimental TeamSpeak client written in C++20, targeting Linux natively, Windows via MinGW-w64 cross-compilation, and Windows natively via MSYS2's UCRT64 environment. Keep changes small, testable, and focused on the client features the project actually intends to support.
+`ts-cli` is an experimental TeamSpeak client in C++20 for Linux and Windows. Build setup for every target is in [BUILDING.md](BUILDING.md). Contributions are made under the project's license, `GPL-3.0-or-later`.
 
-## Build and test
+## Workflow
 
-Full environment setup for all three targets (Linux native, Windows cross-compiled via MinGW-w64, Windows native via MSYS2) is documented in [BUILDING.md](BUILDING.md).
+### Issues
 
-Before submitting changes, run:
+Every change starts with an issue. Each issue gets exactly one main label:
 
-```bash
-make linux
-```
+| Label           | Use for                                                            |
+|-----------------|--------------------------------------------------------------------|
+| `feature`       | something new                                                      |
+| `bug`           | fixing wrong behavior without changing the intended behavior       |
+| `change`        | changing intended behavior                                         |
+| `update`        | changes that don't alter behavior (visuals, refactoring, deps)     |
+| `documentation` | anything documentation                                             |
+| `hotfix`        | an urgent fix that goes straight to `master`                       |
 
-and, if you touched anything below the CLI layer (`net`, `protocol`, `log`, `audio`), also cross-compile and test the Windows target:
+Optional sub-labels narrow it down and can be combined:
 
-```bash
-make windows-cross
-```
+- **Scope**, named after the component: `scope:protocol`, `scope:net`, `scope:audio`, `scope:log`, `scope:config`, `scope:client` (CLI and runtime), `scope:gtk` (`client-gtk/`), `scope:build` (CMake, Makefile, packaging, releases)
+- **Platform**, only if the issue is OS-specific: `platform:linux`, `platform:windows`
+- **Status**: `status:needs_discussion` (the approach isn't agreed on yet), `status:needs_investigation` (the cause or the expected behavior still has to be worked out)
+- **Priority**: `priority:0` to `priority:5`, where `0` is the most urgent and `5` can wait indefinitely
 
-Changes should compile cleanly and keep all tests passing on both targets. Protocol changes should include focused regression tests where practical.
+### Branches
 
-## Cutting a release
+- `master` reflects the latest release; every release is a `vX.Y.Z[-prerelease]` tag on it.
+- `dev` is the integration branch.
+- Work happens on `<main-label>/<issue>-<short-slug>`, branched from `dev`, e.g. `feature/12-inspect-user-client` or `change/14-dont-mute-by-default`. Hotfix branches start from `master`.
 
-Releases are cut with `make release`, which requires a clean working tree and only plain `git` — no GitHub-specific tooling. It builds `linux` and `windows-cross` (both format, build, and run their full test suite first — nothing untested gets released), then:
+### Pull requests
 
-1. shows the current version (read from the `VERSION` file at the repo root) and prompts for the new one — it never bumps the version automatically, and rejects anything that isn't a valid `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-prerelease` semantic version (or is identical to the current one; a version that doesn't look like an increase gets a warning, not a hard block);
-2. packages `ts-cli-v<version>-linux-x86_64` (the Linux binary) and `ts-cli-v<version>-windows-x86_64.zip` and `ts-gtk-v<version>-windows-x86_64.zip` (the `build/windows-cross/dist/` folders) into `build/release/`;
-3. asks for a final confirmation, showing exactly what it's about to do;
-4. on confirmation: commits the `VERSION` bump, creates an annotated `v<version>` tag, and pushes both to `origin`.
+- Open the PR against `dev`; `hotfix/*` PRs go against `master`.
+- One issue per PR. Commit messages follow `[<scope>] <Imperative summary> (#<issue>)`:
+  - the scope is the scope label without its prefix (`protocol`, `audio`, `gtk`, `build`, ...), or `docs` for documentation-only commits
+  - ideally one scope per commit; if a change really spans two, list both with the main one first (`[config][gtk]`), otherwise use the scope the change originates from
+  - the summary is capitalized, has no trailing period, and the whole line stays around 72 characters
 
-`make release` stops there — it does not create anything on GitHub itself. A maintainer creates the actual GitHub release from the pushed tag by hand and attaches the three files left behind in `build/release/`. Answering anything other than `y` at the confirmation prompt aborts before anything is committed, tagged, or pushed.
+  ```
+  [audio] Pace audio playback by the output device clock (#3)
+  [config,gtk] Manage the identity in the GTK options (#3)
+  ```
 
-## Project boundaries
+- Rebase onto the target branch before merging. PRs are merged with rebase-merge, keeping the individual commits and a linear history.
+- `make linux` must pass. If you touched `net`, `protocol`, `log`, `audio` or `config`, `make windows-cross` must pass as well.
+- Protocol changes come with focused regression tests where practical.
 
-Keep responsibilities separated:
+### Releases
 
-- `config/` — configuration: XDG/AppData paths, `config.conf`, the identity file, per-user settings, first-run setup, and applying saved audio settings to an engine; shared by every front end
-- `client/` — CLI, application runtime and UI/audio coordination
-- `client-gtk/` — GTK front end; presentation only, on top of `config/` and `client/`'s runtime (`ts-client-runtime`)
+There is no fixed schedule; maintainers release when it makes sense.
+
+1. Fast-forward `master` to `dev`.
+2. Run `make release` on `master`. It builds and tests both targets, prompts for the new version, commits `VERSION` as `[release] v<version>`, tags `v<version>` and pushes both.
+3. Create the GitHub release from the tag and attach the three files in `build/release/`.
+4. Fast-forward `dev` to `master`.
+
+A hotfix is released the same way straight from `master` (usually a patch version); afterwards merge `master` back into `dev`.
+
+## Architecture
+
+- `config/` — paths, `config.conf`, identity, per-user settings, first-run setup; shared by every front end
+- `client/` — CLI, application runtime, UI/audio coordination
+- `client-gtk/` — GTK front end; presentation only, on top of `config/` and `ts-client-runtime`
 - `log/` — logging and sinks
 - `net/` — networking primitives
-- `protocol/` — TeamSpeak wire protocol, crypto, transport, typed messages and protocol state
+- `protocol/` — TeamSpeak wire protocol, crypto, transport, typed messages, protocol state
 
-The protocol layer must not read configuration files, inspect XDG paths, or depend on terminal/UI behavior. Front ends must not parse or write configuration files themselves; anything a second front end would duplicate belongs in `config/`.
+Rules:
 
-Prefer typed messages and state objects over raw command strings in higher layers. Avoid generic `Utils` classes and large procedural grab-bags.
+- The protocol layer never reads configuration, inspects paths or depends on terminal/UI behavior.
+- Front ends never parse or write configuration files; anything a second front end would duplicate belongs in `config/`.
+- Prefer typed messages and state objects over raw command strings in higher layers. No generic `Utils` grab-bags.
+- One network thread owns all protocol state (sequences, ACKs, crypto, fragmentation, timers). Never process packets concurrently; the UI talks to it through queued actions and events.
+- The server is the source of truth: send the command and let the resulting notification update local state, no optimistic updates. Preserve unknown notifications instead of dropping them.
 
-## Platform backends
+### Platform backends
 
-`ts-cli` targets Linux natively and Windows via MinGW-w64 cross-compilation (see [BUILDING.md](BUILDING.md)), so public headers must not leak OS-specific types (`sockaddr_storage`, `pollfd`, file descriptors, `HANDLE`, ...). `net`, `log`, and `audio` follow the same shape for this:
+- Public headers never leak OS-specific types (`sockaddr_storage`, `pollfd`, file descriptors, `HANDLE`, ...).
+- A platform-agnostic interface (e.g. `net::UdpSocket`, `audio::AudioEngine`) sits on top of an abstract backend or free functions, with a `Create*Backend()` factory where state is needed.
+- Each target gets its own implementation in `src/posix/` or `src/win32/`, selected in `CMakeLists.txt`, never by `#ifdef` in shared code. Platform-agnostic parts (Opus, RNNoise) stay outside the split.
+- Link dynamically on every target and never add `-static`. A new Windows executable gets its DLL folder from `ts_bundle_windows()` (`cmake/bundle_windows_target.cmake`).
 
-- a public, platform-agnostic interface (`net::UdpSocket`, `log::TerminalColor`, `audio::AudioEngine`) that the rest of the codebase links against;
-- an abstract backend interface (`net::SocketBackend`, `audio::AudioBackend`) or a set of free functions, plus a `Create*Backend()` factory declared next to it where a stateful backend is needed;
-- one concrete backend implementation per build target, kept in its own source subdirectory (`net/src/posix/` + `net/src/win32/`, `log/src/posix/` + `log/src/win32/`, `audio/src/posix/pipewire_backend.cpp` + `audio/src/win32/wasapi_backend.cpp`) and selected by `CMakeLists.txt` based on the target platform — never by `#ifdef` scattered through shared source.
+### Protocol work
 
-`config/platform/paths.hpp` and `config/platform/secure_file.hpp` (`config/src/posix/` + `config/src/win32/`) follow the same pattern for the per-user config directory and owner-only file permissions. `client/platform/console_io.hpp`, `client/platform/terminal_control.hpp` and `client/gtk/platform/shutdown_signal.hpp` do too, for interactive-terminal/stdin handling and cursor control (`client/src/platform/posix/`, `client/src/platform/win32/`, `client-gtk/src/platform/posix/`, `client-gtk/src/platform/win32/`), since those are also inherently OS-specific. `audio` ships a real backend on both targets now (PipeWire/Opus on Linux, WASAPI/Opus on Windows); Opus and RNNoise (`audio/src/opus_codec.cpp`, `audio/src/rnnoise_filter.cpp`) are platform-agnostic and stay outside the `posix/`/`win32/` split entirely, wired in once regardless of which backend gets picked.
+- Prefer evidence from real TeamSpeak clients/servers, then established implementations and documentation, and only then inference.
+- Never weaken crypto or transport validation to make a higher-level feature work; capture the real behavior and fix the correct layer.
+- Keep protocol changes narrow; don't mix unrelated refactors with new wire behavior.
 
-Link libraries dynamically on every target. On Linux that means the distribution's shared libraries, so security fixes (OpenSSL above all) arrive through the package manager. On Windows, where nothing provides those libraries, each executable is shipped as a folder with the DLLs it imports, taken from MSYS2's UCRT64 packages (see [BUILDING.md](BUILDING.md#output)). Don't add `-static` link flags: GCC applies them to the whole link, and a static C++ runtime in an executable next to DLLs that use the shared one is a bug waiting to happen. A new Windows executable gets its folder from `ts_bundle_windows()` (`cmake/bundle_windows_target.cmake`).
+## Code style
 
-When adding a backend for a target that doesn't have one yet, this is the checklist: implement the missing backend against the existing interface headers, add the corresponding `CMakeLists.txt` branch, and leave every consumer above the backend layer untouched. If a new primitive needs OS-specific types at all, give it the same treatment rather than including platform headers from a public header.
+- C++20, traditional include guards (no `#pragma once`), opening braces on the same line
+- snake_case filenames, PascalCase types and functions, private fields `m_PascalCase` (e.g. `m_ClientId`), no `this->m_Field` unless required
+- Namespaces follow the components: `ts::net`, `ts::protocol`, ...
+- Prefer `std::endl` for terminal/log output
+- Includes: quotes only for project headers in the same directory (headers only), angle brackets for everything else
 
-## C++ style
+  ```cpp
+  #include "bootstrap.hpp"
 
-- C++20
-- Traditional include guards; do not use `#pragma once`
-- Lowercase snake_case filenames
-- PascalCase types and functions
-- Private fields use `m_` followed by PascalCase, for example `m_ClientId`
-- Do not write `this->m_Field` unless required
-- Opening braces stay on the same line
-- Prefer `std::endl` for normal terminal/log output in this project
+  #include <protocol/crypto/session_crypto.hpp>
+  #include <string>
+  ```
 
-Namespaces follow the component structure, for example:
-
-```cpp
-namespace ts::net {
-}
-
-namespace ts::protocol {
-}
-```
-
-## Includes
-
-In header files:
-
-- Use quotes only for project headers in the same directory
-- Use angle brackets for project headers from other directories
-- Use angle brackets for standard-library and external headers
-
-Example:
-
-```cpp
-#include "bootstrap.hpp"
-
-#include <protocol/crypto/session_crypto.hpp>
-#include <cstdint>
-#include <string>
-```
-
-In `.cpp` files, use angle brackets for project headers:
-
-```cpp
-#include <protocol/session/session.hpp>
-```
-
-## `[[nodiscard]]`
-
-Use `[[nodiscard]]` for values whose result should normally be consumed:
-
-- parsers
-- factories
-- serializers
-- getters
-- computations
-- data-returning functions
-
-Do not add it to actions or lifecycle operations such as:
-
-```cpp
-Send();
-Connect();
-Run();
-```
-
-An action does not become `[[nodiscard]]` merely because it returns an ID.
-
-## Protocol work
-
-Prefer evidence in this order:
-
-1. behavior observed from real TeamSpeak clients/servers
-2. established protocol implementations and documentation
-3. inference only when necessary
-
-Do not weaken crypto or transport validation just to make a higher-level feature work. If a protocol assumption fails against a real server, capture the actual message/packet behavior and fix the correct layer.
-
-Keep protocol changes narrow. Avoid combining unrelated refactors with new wire behavior.
-
-## Session and transport architecture
-
-One network I/O thread should eventually own all TeamSpeak protocol state, including:
-
-- packet sequences and generations
-- ACK/retransmission state
-- crypto
-- fragmentation and compression
-- ping/pong and timers
-- session state mutations
-
-Do not process packets concurrently on separate worker threads. The UI should communicate with the network side through queued actions/events. Audio will live on its own thread later.
-
-## State handling
-
-Treat the server as the source of truth. For actions such as moving channels, send the command and let the resulting server notification update local state rather than mutating state optimistically.
-
-Preserve unknown or not-yet-supported notifications when possible instead of silently dropping information required by later features.
+- `[[nodiscard]]` on parsers, factories, serializers, getters and other data-returning functions; not on actions such as `Send()`, `Connect()` or `Run()`, even if they return an ID
 
 ## Scope
 
-The goal is a useful terminal TeamSpeak client, not complete implementation of every TeamSpeak feature. Current priorities are navigation, text chat, interactive runtime behavior and voice/audio.
-
-Administrative tooling, exhaustive permission management and unrelated protocol surface should only be added when there is a concrete client need.
-
-## License
-
-Contributions are made under the same license as the project: `GPL-3.0-or-later`.
+The goal is a useful TeamSpeak client, not every TeamSpeak feature. Current priorities are navigation, text chat, interactive runtime behavior and voice. Administrative tooling and exhaustive permission management only get added for a concrete client need.
