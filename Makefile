@@ -160,7 +160,7 @@ release: release-precheck linux windows-cross
 	trap rollback EXIT; \
 	echo "$$new_version" > $(VERSION_FILE); \
 	git add $(VERSION_FILE); \
-	git commit -m "Release v$$new_version"; \
+	git commit -m "[release] v$$new_version"; \
 	committed=1; \
 	git tag -a "v$$new_version" -m "Release v$$new_version"; \
 	tagged_local=1; \
