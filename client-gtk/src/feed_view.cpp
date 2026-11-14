@@ -1,11 +1,17 @@
 #include <client/gtk/conversation_log.hpp>
 #include <client/gtk/display_text.hpp>
 #include <client/gtk/feed_view.hpp>
+#include <giomm/file.h>
+#include <glib-object.h>
+#include <glibmm.h>
+#include <glibmm/markup.h>
+#include <glibmm/refptr.h>
 #include <gtkmm/cssprovider.h>
 #include <gtkmm/enums.h>
 #include <gtkmm/grid.h>
 #include <gtkmm/label.h>
 #include <gtkmm/object.h>
+#include <gtkmm/picture.h>
 #include <regex>
 #include <vector>
 
@@ -97,21 +103,39 @@ namespace ts::client::gtk {
         header->set_valign( Gtk::Align::START );
         header->set_selectable( false );
 
-        Gtk::Label* content = Gtk::make_managed<Gtk::Label>();
+        Gtk::Widget* content;
+        std::string link_label, url;
 
-        std::string label, url;
-        if ( FeedView::ParseUrl( line.text, label, url ) ) {
-            content->set_markup( "<a href=\"" + url + "\">" + label + "</a>" );
+        if ( FeedView::ParseImg( line.text, url ) ) {
+            Gtk::Picture* picture = Gtk::make_managed<Gtk::Picture>();
+            content = picture;
+
+            picture->set_halign( Gtk::Align::START );
+            picture->set_hexpand( false );
+            picture->set_valign( Gtk::Align::START );
+            picture->set_can_shrink( false );
+            picture->set_content_fit( Gtk::ContentFit::CONTAIN );
+
+            FeedView::LoadImage( *picture, url );
+
         } else {
-            content->set_text( line.text );
+            Gtk::Label* label = Gtk::make_managed<Gtk::Label>();
+            content = label;
+
+            if ( FeedView::ParseUrl( line.text, link_label, url ) ) {
+                label->set_markup( "<a href=\"" + Glib::Markup::escape_text( url ) + "\">" +
+                                   Glib::Markup::escape_text( link_label ) + "</a>" );
+            } else {
+                label->set_text( line.text );
+            }
+            label->add_css_class( "chat-message" );
+            label->set_xalign( 0.0f );
+            label->set_wrap( true );
+            label->set_selectable( true );
+            label->set_halign( Gtk::Align::FILL );
+            label->set_hexpand( true );
         }
-        content->add_css_class( "chat-message" );
-        content->set_xalign( 0.0f );
-        content->set_halign( Gtk::Align::FILL );
-        content->set_hexpand( true );
-        content->set_valign( Gtk::Align::START );
-        content->set_wrap( true );
-        content->set_selectable( true );
+
         content->set_focusable( false );
 
         // Header in column 0; content in column 1.
@@ -133,6 +157,59 @@ namespace ts::client::gtk {
         }
 
         return url.starts_with( "http://" ) || url.starts_with( "https://" );
+    }
+
+    bool FeedView::ParseImg( const std::string& text, std::string& url ) {
+        static const std::regex pattern( R"(\[img\](.*?)\[/img\])", std::regex::icase );
+
+        std::smatch match;
+
+        if ( std::regex_search( text, match, pattern ) ) {
+            url = match[1].str();
+        }
+
+        return url.starts_with( "https://" ) || url.starts_with( "http://" );
+    }
+
+    void FeedView::LoadImage( Gtk::Picture& picture, const std::string& url ) {
+        struct Request {
+            Glib::RefPtr<Gio::File> file;
+            GWeakRef picture;
+        };
+
+        auto* request = new Request {};
+        request->file = Gio::File::create_for_uri( url );
+
+        g_weak_ref_init( &request->picture, G_OBJECT( picture.gobj() ) );
+
+        request->file->load_contents_async( [request]( const Glib::RefPtr<Gio::AsyncResult>& result ) {
+            char* contents = nullptr;
+            gsize length = 0;
+
+            try {
+                if ( !request->file->load_contents_finish( result, contents, length ) ) {
+                    g_warning( "Failed to load image" );
+                } else {
+                    auto bytes = Glib::Bytes::create( contents, length );
+
+                    auto texture = Gdk::Texture::create_from_bytes( bytes );
+
+                    GObject* object = static_cast<GObject*>( g_weak_ref_get( &request->picture ) );
+
+                    if ( object ) {
+                        gtk_picture_set_paintable( GTK_PICTURE( object ), GDK_PAINTABLE( texture->gobj() ) );
+                        g_object_unref( object );
+                    }
+                }
+            } catch ( const Glib::Error& e ) {
+                g_warning( "Image loading failed: %s", e.what() );
+            }
+
+            g_free( contents );
+
+            g_weak_ref_clear( &request->picture );
+            delete request;
+        } );
     }
 
 } // namespace ts::client::gtk

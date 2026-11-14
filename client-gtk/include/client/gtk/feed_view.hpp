@@ -4,6 +4,7 @@
 #include "conversation_log.hpp"
 
 #include <gtkmm/box.h>
+#include <gtkmm/picture.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/textview.h>
 #include <vector>
@@ -33,6 +34,19 @@ namespace ts::client::gtk {
          *         Output parameters are equal to text when no link is found.
          */
         [[nodiscard]] static bool ParseUrl( const std::string& text, std::string& label, std::string& url );
+
+        /**
+         * @brief Parses a text message for a BBCode IMG.
+         *
+         * @param text The text to parse.
+         * @param url Receives the image parsed URL.
+         *
+         * @return True if an image link was found, otherwise false.
+         *         Output parameter remains unchanged if false.
+         */
+        [[nodiscard]] static bool ParseImg( const std::string& text, std::string& url );
+
+        static void LoadImage( Gtk::Picture& picture, const std::string& url );
 
         Glib::RefPtr<Gtk::TextBuffer::Mark> m_End;
         Gtk::Box m_Container;
