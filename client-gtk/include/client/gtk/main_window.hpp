@@ -4,6 +4,7 @@
 #include "channel_tree.hpp"
 #include "conversation_log.hpp"
 #include "feed_view.hpp"
+#include "log/logger.hpp"
 #include "options_window.hpp"
 #include "session.hpp"
 #include "user_audio_popover.hpp"
@@ -46,7 +47,8 @@ namespace ts::client::gtk {
                     config::Config& config,
                     const config::Paths& paths,
                     config::UserConfigStore& userConfigs,
-                    NetworkWake& wake );
+                    NetworkWake& wake,
+                    ts::log::Logger& logger );
 
         ~MainWindow() override;
 
