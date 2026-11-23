@@ -1,5 +1,6 @@
 #include <charconv>
 #include <cmath>
+#include <config/chat_settings.hpp>
 #include <config/config.hpp>
 #include <config/platform/secure_file.hpp>
 #include <cstdint>
@@ -78,7 +79,9 @@ namespace ts::config {
                << "audio_input=" << m_AudioSettings.input << std::endl
                << "audio_output=" << m_AudioSettings.output << std::endl
                << "audio_filter=" << m_AudioSettings.captureFilter << std::endl
-               << "audio_activation_threshold_db=" << m_AudioSettings.activationThresholdDb << std::endl;
+               << "audio_activation_threshold_db=" << m_AudioSettings.activationThresholdDb << std::endl
+               << "gtk_warn_links=" << m_ChatSettings.warnOpenLinks << std::endl
+               << "gtk_blur_images=" << m_ChatSettings.blurImages << std::endl;
 
         if ( !m_LastServer.empty() ) {
             stream << std::endl
@@ -100,6 +103,10 @@ namespace ts::config {
     void Config::Update( const ConfigMutator& mutator ) {
         mutator( *this );
         Save();
+    }
+
+    ChatSettings Config::ChatConfig() const {
+        return m_ChatSettings;
     }
 
     protocol::ClientProfile Config::Profile() const {
@@ -133,6 +140,10 @@ namespace ts::config {
         }
 
         m_AudioSettings = settings;
+    }
+
+    void Config::SetChatConfig( const ChatSettings& chatSettings ) {
+        m_ChatSettings = chatSettings;
     }
 
     void Config::SetNickname( std::string nickname ) {
@@ -217,7 +228,8 @@ namespace ts::config {
 
             if ( name != "nickname" && name != "client_init_version" && name != "client_version" && name != "client_platform" &&
                  name != "client_version_sign" && name != "audio_input" && name != "audio_output" && name != "audio_filter" &&
-                 name != "audio_activation_threshold_db" && name != "last_server" ) {
+                 name != "audio_activation_threshold_db" && name != "last_server" && name != "gtk_warn_links" &&
+                 name != "gtk_blur_images" ) {
                 throw std::runtime_error( "Unknown config key: " + std::string( name ) );
             }
 
@@ -294,6 +306,14 @@ namespace ts::config {
 
         if ( const auto value = values.find( "last_server" ); value != values.end() ) {
             config.m_LastServer = value->second;
+        }
+
+        if ( const auto value = values.find( "gtk_warn_links" ); value != values.end() ) {
+            config.m_ChatSettings.warnOpenLinks = ParseUnsigned( value->second, "gtk_warn_links" ) > 0;
+        }
+
+        if ( const auto value = values.find( "gtk_blur_images" ); value != values.end() ) {
+            config.m_ChatSettings.blurImages = ParseUnsigned( value->second, "gtk_blur_images" ) > 0;
         }
 
         return config;

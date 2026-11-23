@@ -11,7 +11,8 @@ namespace ts::client::gtk {
                                   std::filesystem::path identityPath,
                                   AudioSettingsPage::ChangedHandler onAudioChanged,
                                   IdentityPage::RenameHandler rename ):
-        m_Audio( audio, std::move( onAudioChanged ) ), m_Identity( config, std::move( identityPath ), std::move( rename ) ) {
+        m_Audio( audio, std::move( onAudioChanged ) ), m_Identity( config, std::move( identityPath ), std::move( rename ) ),
+        m_ChatSettings( config ) {
         set_title( "Options" );
         set_default_size( 480, -1 );
         set_resizable( false );
@@ -20,6 +21,7 @@ namespace ts::client::gtk {
 
         m_Tabs.append_page( m_Audio, "Audio" );
         m_Tabs.append_page( m_Identity, "Identity" );
+        m_Tabs.append_page( m_ChatSettings, "Chat" );
 
         m_Close.set_halign( Gtk::Align::END );
         m_Close.set_margin( 12 );
