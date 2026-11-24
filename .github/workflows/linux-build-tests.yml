@@ -1,0 +1,51 @@
+name: Linux Build & Tests
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux / Arch / CMake / CTest
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            cmake \
+            clang \
+            pkgconf \
+            git \
+            openssl \
+            libsodium \
+            pipewire \
+            opus \
+            rnnoise \
+            gtkmm-4.0
+
+      - name: Check dependency versions
+        run: |
+          pkg-config --modversion gtkmm-4.0
+          pkg-config --modversion rnnoise
+          cmake --version
+          clang --version
+
+      - name: Build and test
+        run: make linux
