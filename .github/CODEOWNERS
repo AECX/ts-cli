@@ -1,0 +1,4 @@
+# Only repository administrators should approve workflow changes
+/.github/workflows/  @AECX
+/.github/actions/    @AECX
+/.github/CODEOWNERS  @AECX
