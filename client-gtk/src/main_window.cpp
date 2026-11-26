@@ -1,3 +1,5 @@
+#include "log/logger.hpp"
+
 #include <algorithm>
 #include <audio/audio_types.hpp>
 #include <chrono>
@@ -62,24 +64,25 @@ namespace ts::client::gtk {
                             config::Config& config,
                             const config::Paths& paths,
                             config::UserConfigStore& userConfigs,
-                            NetworkWake& wake ):
+                            NetworkWake& wake,
+                            ts::log::Logger& logger ):
         m_Audio( audio ), m_Config( config ), m_Paths( paths ), m_UserConfigs( userConfigs ), m_Wake( wake ),
-        m_Options(
-            audio,
-            config,
-            paths.IdentityFile(),
-            [this] {
-                PersistAudioSettings();
-            },
-            [this]( const std::string& nickname ) {
-                if ( m_State != ConnectionState::Connected ) {
-                    return false;
-                }
+        m_Feed( logger, config ), m_Options(
+                                      audio,
+                                      config,
+                                      paths.IdentityFile(),
+                                      [this] {
+                                          PersistAudioSettings();
+                                      },
+                                      [this]( const std::string& nickname ) {
+                                          if ( m_State != ConnectionState::Connected ) {
+                                              return false;
+                                          }
 
-                /* Like /nick; a rejected name is reported in the feed. */
-                m_Session->Actions().Push( ChangeNicknameAction { .nickname = nickname } );
-                return true;
-            } ) {
+                                          /* Like /nick; a rejected name is reported in the feed. */
+                                          m_Session->Actions().Push( ChangeNicknameAction { .nickname = nickname } );
+                                          return true;
+                                      } ) {
         set_title( "ts-gtk" );
         set_default_size( 700, 760 );
 

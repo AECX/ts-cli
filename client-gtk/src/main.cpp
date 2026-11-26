@@ -61,7 +61,7 @@ namespace {
             logger.Warning( "audio", std::string( message ) );
         } );
 
-        window.emplace( audio, config, paths, userConfigStore, wake );
+        window.emplace( audio, config, paths, userConfigStore, wake, logger );
     }
 
 } // namespace

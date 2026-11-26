@@ -1,6 +1,8 @@
 #ifndef TS_CONFIG_CONFIG_HPP
 #define TS_CONFIG_CONFIG_HPP
 
+#include "chat_settings.hpp"
+
 #include <audio/audio_types.hpp>
 #include <cstdint>
 #include <filesystem>
@@ -30,8 +32,10 @@ namespace ts::config {
 
         [[nodiscard]] protocol::ClientProfile Profile() const;
         [[nodiscard]] audio::AudioSettings AudioSettings() const;
+        [[nodiscard]] ChatSettings ChatConfig() const;
         void SetAudioSettings( const audio::AudioSettings& settings );
         void SetNickname( std::string nickname );
+        void SetChatConfig( const ChatSettings& chatSettings );
 
         /* The server the GTK client connected to last; empty if none. */
         [[nodiscard]] const std::string& LastServer() const;
@@ -50,6 +54,7 @@ namespace ts::config {
         std::string m_ClientVersionSignature;
         audio::AudioSettings m_AudioSettings;
         std::string m_LastServer;
+        ChatSettings m_ChatSettings;
 
         std::optional<std::filesystem::path> m_Path;
     };

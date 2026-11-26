@@ -2,6 +2,7 @@
 #define TS_CLIENT_GTK_OPTIONS_WINDOW_HPP
 
 #include "audio_settings_page.hpp"
+#include "chat_settings_page.hpp"
 #include "identity_page.hpp"
 
 #include <audio/audio_engine.hpp>
@@ -36,6 +37,8 @@ namespace ts::client::gtk {
         Gtk::Notebook m_Tabs;
         AudioSettingsPage m_Audio;
         IdentityPage m_Identity;
+        ChatSettingsPage m_ChatSettings;
+
         Gtk::Button m_Close { "Close" };
     };
 

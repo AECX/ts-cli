@@ -37,6 +37,7 @@ pkg_check_modules(
 )
 
 add_executable(ts-gtk
+    src/chat_settings_page.cpp
     src/audio_settings_page.cpp
     src/channel_tree.cpp
     src/display_text.cpp
